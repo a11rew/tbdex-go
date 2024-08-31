@@ -1,11 +1,4 @@
-import UssdMenu from 'ussd-menu-builder';
-
-interface UssdRequest {
-	text: string;
-	phoneNumber: string;
-	sessionId: string;
-	serviceCode: string;
-}
+import { handleUSSDRequest } from './ussd';
 
 export default {
 	/**
@@ -22,50 +15,14 @@ export default {
 		}
 
 		const body = await request.formData();
-		const jsonBody = Object.fromEntries(body.entries()) as unknown as UssdRequest;
+		const jsonBody = Object.fromEntries(body.entries());
 
 		console.log('body', jsonBody);
 
-		const menu = new UssdMenu({
-			provider: 'africasTalking',
-		});
-
-		menu.startState({
-			run: () => {
-				// prettier-ignore
-				menu.con(
-					'Welcome to the TBDex SDK service. Choose an option:' +
-						'\n1. Send Money' +
-						'\n2. Check stored balances' +
-						'\n3. Profile'
-				);
-			},
-			next: {
-				'1': 'sendMoney',
-				'2': 'checkBalances',
-				'3': 'profile',
-			},
-		});
-
-		menu.state('sendMoney', {
-			run: () => {
-				menu.end('You chose to send money. We will add support for this soon.');
-			},
-		});
-
-		menu.state('checkBalances', {
-			run: () => {
-				menu.end('You chose to check your balances. We will add support for this soon.');
-			},
-		});
-
-		menu.state('profile', {
-			run: () => {
-				menu.end('You chose to view your profile. We will add support for this soon.');
-			},
-		});
-
-		const response = await menu.run(jsonBody);
+		const response = await handleUSSDRequest(
+			// @ts-expect-error - TODO: Add runtime type validation
+			jsonBody
+		);
 
 		return new Response(response);
 	},
