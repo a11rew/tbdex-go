@@ -1,0 +1,20 @@
+{
+	"name": "tbdex-ussd",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"cf-typegen": "wrangler types"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "^4.20240821.1",
+		"@types/node": "^22.5.1",
+		"typescript": "^5.5.2",
+		"wrangler": "^3.60.3"
+	},
+	"dependencies": {
+		"ussd-menu-builder": "^1.2.0"
+	}
+}
