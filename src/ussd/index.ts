@@ -1,22 +1,74 @@
 import UssdMenu from 'ussd-menu-builder';
-
 import modules from './modules';
 
-interface UssdRequest {
+export interface UssdRequest {
 	text: string;
 	phoneNumber: string;
 	sessionId: string;
 	serviceCode: string;
 }
 
-const moduleIndexMap = modules.reduce((acc, module, index) => {
-	acc[index + 1] = module.id;
-	return acc;
-}, {} as Record<number, string>);
+const moduleIndexMap = modules.reduce(
+	(acc, module, index) => {
+		acc[index + 1] = {
+			id: module.id,
+			description: module.description,
+		};
+		return acc;
+	},
+	{} as Record<number, { id: string; description: string }>,
+);
 
-export async function handleUSSDRequest(request: UssdRequest): Promise<string> {
+export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: ExecutionContext) {
 	const menu = new UssdMenu({
 		provider: 'africasTalking',
+	});
+
+	// Configure session storage using KV
+	menu.sessionConfig({
+		start: async (sessionId) => {
+			// Initialize session state
+			// no-op
+		},
+		set: async (sessionId, key, value) => {
+			let stringValue = value;
+
+			// Try serializing value
+			if (typeof value !== 'string') {
+				try {
+					stringValue = JSON.stringify(value);
+				} catch (error) {
+					console.error('Error serializing value', error);
+					throw new Error('Error serializing value ' + error);
+				}
+			}
+
+			// Update session state
+			await env.session_store.put(`session-${sessionId}.${key}`, stringValue);
+		},
+		end: async (sessionId) => {
+			// Clean up session state
+			let keys: string[] = [];
+
+			// List all keys for the session, paginate if necessary
+			let response = await env.session_store.list({ prefix: `session-${sessionId}.` });
+			while (!response.list_complete) {
+				keys.push(...response.keys.map((key) => key.name));
+				response = await env.session_store.list({
+					prefix: `session-${sessionId}.`,
+					cursor: response.cursor,
+				});
+			}
+
+			// Delete all keys for the session
+			// TODO: Use the bulk deletion API - https://developers.cloudflare.com/api/operations/workers-kv-namespace-delete-multiple-key-value-pairs
+			await Promise.all(keys.map((key) => env.session_store.delete(key)));
+		},
+		get: async (sessionId, key) => {
+			// Retrieve session state value
+			const session = await env.session_store.get(`session-${sessionId}.${key}`);
+			return session;
+		},
 	});
 
 	menu.startState({
@@ -26,19 +78,39 @@ export async function handleUSSDRequest(request: UssdRequest): Promise<string> {
 				'Welcome to the TBDex USSD service. Choose an option:' +
 					'\n' +
 					Object.entries(moduleIndexMap)
-						.map(([index, moduleId]) => `${index}. ${moduleId}`)
+						.map(([index, module]) => `${index}. ${module.description}`)
 						.join('\n')
 			);
 		},
-		next: moduleIndexMap,
+		next: Object.entries(moduleIndexMap).reduce(
+			(acc, [index, module]) => {
+				acc[index] = module.id;
+				return acc;
+			},
+			{} as Record<string, string>,
+		),
+	});
+
+	menu.state('__exit__', {
+		run: () => {
+			menu.end('Thank you for using the TBDex USSD service. Goodbye!');
+			return;
+		},
+	});
+
+	menu.on('error', (err) => {
+		console.error('Caught emitted error', err);
 	});
 
 	// Register modules
 	modules.forEach((module) => {
-		module.handler(menu);
+		module.handler(menu, request, env, ctx);
 	});
 
-	const response = await menu.run(request as unknown as UssdMenu.UssdGatewayArgs);
-
-	return response;
+	try {
+		const response = await menu.run(request as unknown as UssdMenu.UssdGatewayArgs);
+		return response;
+	} catch (error) {
+		console.error('Error', error);
+	}
 }
