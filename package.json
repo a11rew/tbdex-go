@@ -6,15 +6,28 @@
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
-		"cf-typegen": "wrangler types"
+		"cf-typegen": "wrangler types --experimental-include-runtime=./src/types/runtime.d.ts",
+		"migrate": "wrangler d1 migrations apply tbdex-d1",
+		"drizzle:generate": "drizzle-kit generate",
+		"drizzle:up": "drizzle-kit up"
 	},
 	"devDependencies": {
-		"@cloudflare/workers-types": "^4.20240821.1",
-		"@types/node": "^22.5.1",
+		"@ianvs/prettier-plugin-sort-imports": "^4.3.1",
+		"@types/node": "^20.8.3",
+		"drizzle-kit": "^0.24.2",
 		"typescript": "^5.5.2",
-		"wrangler": "^3.60.3"
+		"wrangler": "^3.74.0"
 	},
 	"dependencies": {
+		"@paralleldrive/cuid2": "^2.2.2",
+		"@tbdex/http-client": "1.1.0",
+		"@web5/crypto": "1.0.1",
+		"@web5/crypto-aws-kms": "1.0.1",
+		"@web5/dids": "^1.1.2",
+		"drizzle-orm": "^0.33.0",
 		"ussd-menu-builder": "^1.2.0"
+	},
+	"overrides": {
+		"@types/node": "20.8.3"
 	}
 }

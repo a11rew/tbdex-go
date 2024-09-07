@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS Users (
+	user_id TEXT PRIMARY KEY,
+	phone_number TEXT,
+	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
