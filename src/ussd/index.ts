@@ -1,5 +1,5 @@
-import UssdMenu from 'ussd-menu-builder';
-import modules from './modules';
+import UssdMenu from 'ussd-builder';
+import modules, { UssdModule } from './modules';
 
 export interface UssdRequest {
 	text: string;
@@ -10,13 +10,10 @@ export interface UssdRequest {
 
 const moduleIndexMap = modules.reduce(
 	(acc, module, index) => {
-		acc[index + 1] = {
-			id: module.id,
-			description: module.description,
-		};
+		acc[index + 1] = module;
 		return acc;
 	},
-	{} as Record<number, { id: string; description: string }>,
+	{} as Record<number, UssdModule>,
 );
 
 export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: ExecutionContext) {
@@ -26,7 +23,7 @@ export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: Exe
 
 	// Configure session storage using KV
 	menu.sessionConfig({
-		start: async (sessionId) => {
+		start: async () => {
 			// Initialize session state
 			// no-op
 		},
@@ -66,28 +63,32 @@ export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: Exe
 		},
 		get: async (sessionId, key) => {
 			// Retrieve session state value
-			const session = await env.session_store.get(`session-${sessionId}.${key}`);
-			return session;
+			const value = await env.session_store.get(`session-${sessionId}.${key}`);
+			return value;
 		},
+	});
+
+	// Register modules
+	modules.forEach((module) => {
+		module.handler(menu, request, env, ctx);
 	});
 
 	menu.startState({
 		run: () => {
-			// prettier-ignore
 			menu.con(
 				'Welcome to the TBDex USSD service. Choose an option:' +
 					'\n' +
 					Object.entries(moduleIndexMap)
 						.map(([index, module]) => `${index}. ${module.description}`)
-						.join('\n')
+						.join('\n'),
 			);
 		},
 		next: Object.entries(moduleIndexMap).reduce(
 			(acc, [index, module]) => {
-				acc[index] = module.id;
+				acc[index] = module.nextHandler ? module.nextHandler.bind(null, menu, request, env, ctx) : module.id;
 				return acc;
 			},
-			{} as Record<string, string>,
+			{} as Record<string, (() => Promise<string> | string) | string>,
 		),
 	});
 
@@ -102,15 +103,5 @@ export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: Exe
 		console.error('Caught emitted error', err);
 	});
 
-	// Register modules
-	modules.forEach((module) => {
-		module.handler(menu, request, env, ctx);
-	});
-
-	try {
-		const response = await menu.run(request as unknown as UssdMenu.UssdGatewayArgs);
-		return response;
-	} catch (error) {
-		console.error('Error', error);
-	}
+	return await menu.run(request as unknown as UssdMenu.UssdGatewayArgs);
 }

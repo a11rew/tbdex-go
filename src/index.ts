@@ -17,11 +17,11 @@ export default {
 		const body = await request.formData();
 		const jsonBody = Object.fromEntries(body.entries());
 
-		console.log('body', jsonBody);
-
 		const response = await handleUSSDRequest(
 			// @ts-expect-error - TODO: Add runtime type validation
-			jsonBody
+			jsonBody,
+			env,
+			ctx,
 		);
 
 		return new Response(response);
