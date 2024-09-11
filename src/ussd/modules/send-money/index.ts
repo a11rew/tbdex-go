@@ -1,18 +1,13 @@
-import { users } from '@/db/schema';
-import { resolveDID } from '@/did';
-import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/d1';
+import { getUserByPhoneNumber, registerUser } from '@/user';
 import type { UssdModule } from '../';
 import { registerAuthenticatedSendMoney } from './authenticated';
 
 const nextHandler: UssdModule['nextHandler'] = async (menu, request, env) => {
 	try {
-		const db = drizzle(env.DB);
-		const [user] = await db.select().from(users).where(eq(users.phoneNumber, request.phoneNumber)).limit(1);
-
-		await menu.session.set('user', user);
+		const user = await getUserByPhoneNumber(env, request.phoneNumber);
 
 		if (user) {
+			await menu.session.set('user', user);
 			return 'authenticated.sendMoney';
 		}
 
@@ -48,10 +43,19 @@ const handler: UssdModule['handler'] = (menu, request, env) => {
 		},
 		next: {
 			1: async () => {
-				await registerUser(request.phoneNumber, env);
-				return 'authenticated.sendMoney';
+				try {
+					await registerUser(env, request.phoneNumber);
+
+					const user = await getUserByPhoneNumber(env, request.phoneNumber);
+					await menu.session.set('user', user);
+
+					return 'authenticated.sendMoney';
+				} catch (error) {
+					console.error('Error in registerWithPhoneNumber', error);
+					throw error;
+				}
 			},
-			2: () => menu.go('__exit__'),
+			2: '__exit__',
 		},
 	});
 
@@ -63,18 +67,6 @@ const handler: UssdModule['handler'] = (menu, request, env) => {
 
 	registerAuthenticatedSendMoney(menu, request, env);
 };
-
-async function registerUser(phoneNumber: string, env: Env) {
-	const did = await resolveDID();
-
-	const portableDID = await did.export();
-
-	const db = drizzle(env.DB);
-	await db.insert(users).values({
-		phoneNumber,
-		did: JSON.stringify(portableDID),
-	});
-}
 
 export default {
 	id: 'sendMoney',

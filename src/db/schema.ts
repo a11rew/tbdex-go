@@ -8,3 +8,17 @@ export const users = sqliteTable('users', {
 	did: text('did').notNull(),
 	phoneNumber: text('phone_number').notNull(),
 });
+
+export type User = typeof users.$inferSelect;
+
+export const credentials = sqliteTable('credentials', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => createId()),
+	user_id: text('user_id')
+		.references(() => users.id)
+		.notNull(),
+	vc: text('vc').notNull(),
+});
+
+export type Credential = typeof credentials.$inferSelect;

@@ -76,8 +76,10 @@ export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: Exe
 	menu.startState({
 		run: () => {
 			menu.con(
-				'Welcome to the TBDex USSD service. Choose an option:' +
-					'\n' +
+				'Welcome to tbDEX go.' +
+					'\n\n' +
+					'Send money across borders instantly and securely. To get started, choose an option:' +
+					'\n\n' +
 					Object.entries(moduleIndexMap)
 						.map(([index, module]) => `${index}. ${module.description}`)
 						.join('\n'),
