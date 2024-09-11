@@ -12,6 +12,7 @@ const stateId = 'authenticated.sendMoney';
 export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequest, env: Env) {
 	menu.state(stateId, {
 		run: async () => {
+			console.log('running authenticated.sendMoney');
 			try {
 				// Fetch offerings
 				const { allOfferings } = await fetchPFIOfferings(env);
@@ -32,7 +33,7 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 				// Write offerings to session
 				await menu.session.set('offeringsByPayoutCurrencyCode', JSON.stringify(offeringsByPayoutCurrencyCode));
 
-				// Show user available payin currencies
+				// Show user available payout currencies
 				menu.con(
 					'What currency do you want to send?' +
 						'\n' +
@@ -47,36 +48,51 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 		},
 		next: {
 			'*': async () => {
-				const input = menu.val;
-				const index = parseInt(input) - 1;
+				try {
+					console.log('selectPayoutCurrency.next');
+					const input = menu.val;
+					const index = parseInt(input) - 1;
 
-				const offeringsByPayoutCurrencyCode = JSON.parse(await menu.session.get('offeringsByPayoutCurrencyCode')) as Record<
-					string,
-					Offering[]
-				>;
+					console.log('input', input);
+					console.log('index', index);
 
-				if (index < 0 || index >= Object.keys(offeringsByPayoutCurrencyCode).length) {
-					// TODO: Show soft error
-					return menu.end('You have entered an invalid selection. Please try again.');
+					const offeringsByPayoutCurrencyCode = JSON.parse(await menu.session.get('offeringsByPayoutCurrencyCode')) as Record<
+						string,
+						Offering[]
+					>;
+
+					if (index < 0 || index >= Object.keys(offeringsByPayoutCurrencyCode).length) {
+						// TODO: Show soft error
+						return menu.end('You have entered an invalid selection. Please try again.');
+					}
+
+					const payoutCurrencyCode = Object.keys(offeringsByPayoutCurrencyCode)[index];
+
+					await menu.session.set('payoutCurrencyCode', payoutCurrencyCode);
+
+					console.log('payoutCurrencyCode', payoutCurrencyCode);
+
+					return `${stateId}.selectPayinCurrency`;
+				} catch (error) {
+					console.error('Error in authenticated.sendMoney next', error);
+					throw error;
 				}
-
-				const payoutCurrencyCode = Object.keys(offeringsByPayoutCurrencyCode)[index];
-
-				await menu.session.set('payoutCurrencyCode', payoutCurrencyCode);
-
-				return `${stateId}.selectPayinCurrency`;
 			},
 		},
 	});
 
 	menu.state(`${stateId}.selectPayinCurrency`, {
 		run: async () => {
+			console.log('running authenticated.sendMoney.selectPayinCurrency');
 			try {
 				const payoutCurrencyCode = await menu.session.get('payoutCurrencyCode');
 				const offeringsByPayoutCurrencyCode = JSON.parse(await menu.session.get('offeringsByPayoutCurrencyCode')) as Record<
 					string,
 					Offering[]
 				>;
+
+				console.log('selectPayinCurrency.payoutCurrencyCode', payoutCurrencyCode);
+				// console.log('selectPayinCurrency.offeringsByPayoutCurrencyCode', offeringsByPayoutCurrencyCode);
 
 				// Fetch offerings that support the selected payout currency code
 				const offerings = offeringsByPayoutCurrencyCode[payoutCurrencyCode];
@@ -112,30 +128,39 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 		},
 		next: {
 			'*': async () => {
-				const input = menu.val;
-				const index = parseInt(input) - 1;
+				try {
+					console.log('selectPayinCurrency.next');
+					const input = menu.val;
+					const index = parseInt(input) - 1;
 
-				const offeringsByPayinCurrencyCode = JSON.parse(await menu.session.get('offeringsByPayinCurrencyCode')) as Record<
-					string,
-					Offering[]
-				>;
+					const offeringsByPayinCurrencyCode = JSON.parse(await menu.session.get('offeringsByPayinCurrencyCode')) as Record<
+						string,
+						Offering[]
+					>;
 
-				if (index < 0 || index >= Object.keys(offeringsByPayinCurrencyCode).length) {
-					// TODO: Show soft error
-					return menu.end('You have entered an invalid selection. Please try again.');
+					console.log(stateId + '.offeringsByPayinCurrencyCode');
+
+					if (index < 0 || index >= Object.keys(offeringsByPayinCurrencyCode).length) {
+						// TODO: Show soft error
+						return menu.end('You have entered an invalid selection. Please try again.');
+					}
+
+					const payinCurrencyCode = Object.keys(offeringsByPayinCurrencyCode)[index];
+
+					await menu.session.set('payinCurrencyCode', payinCurrencyCode);
+
+					return `${stateId}.chooseOffering`;
+				} catch (error) {
+					console.error('Error in authenticated.sendMoney.selectPayinCurrency next', error);
+					throw error;
 				}
-
-				const payinCurrencyCode = Object.keys(offeringsByPayinCurrencyCode)[index];
-
-				await menu.session.set('payinCurrencyCode', payinCurrencyCode);
-
-				return `${stateId}.chooseOffering`;
 			},
 		},
 	});
 
 	menu.state(`${stateId}.chooseOffering`, {
 		run: async () => {
+			console.log('running authenticated.sendMoney.chooseOffering');
 			try {
 				const offeringsByPayinCurrencyCode = JSON.parse(await menu.session.get('offeringsByPayinCurrencyCode')) as Record<
 					string,
@@ -168,32 +193,38 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 							.join('\n'),
 				);
 			} catch (error) {
-				console.error(error);
+				console.error('Error in authenticated.sendMoney.chooseOffering', error);
 				throw error;
 			}
 		},
 		next: {
 			'*': async () => {
-				const index = parseInt(menu.val) - 1;
+				try {
+					const index = parseInt(menu.val) - 1;
 
-				const offerings = JSON.parse(await menu.session.get('offerings')) as Offering[];
+					const offerings = JSON.parse(await menu.session.get('offerings')) as Offering[];
 
-				if (index < 0 || index >= offerings.length) {
-					// TODO: Show soft error
-					return menu.end('You have entered an invalid selection. Please try again.');
+					if (index < 0 || index >= offerings.length) {
+						// TODO: Show soft error
+						return menu.end('You have entered an invalid selection. Please try again.');
+					}
+
+					const chosenOffering = offerings[index];
+
+					await menu.session.set('chosenOffering', JSON.stringify(chosenOffering));
+
+					return `${stateId}.choosePayinMethod`;
+				} catch (error) {
+					console.error('Error in authenticated.sendMoney.chooseOffering next', error);
+					throw error;
 				}
-
-				const chosenOffering = offerings[index];
-
-				await menu.session.set('chosenOffering', JSON.stringify(chosenOffering));
-
-				return `${stateId}.choosePayinMethod`;
 			},
 		},
 	});
 
 	menu.state(`${stateId}.choosePayinMethod`, {
 		run: async () => {
+			console.log('running authenticated.sendMoney.choosePayinMethod');
 			try {
 				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 
@@ -203,32 +234,38 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 						offering.data.payin.methods.map((method, index) => `${index + 1}. ${method.kind}`).join('\n'),
 				);
 			} catch (error) {
-				console.error(error);
+				console.error('Error in authenticated.sendMoney.choosePayinMethod', error);
 				throw error;
 			}
 		},
 		next: {
 			'*': async () => {
-				const index = parseInt(menu.val) - 1;
+				try {
+					const index = parseInt(menu.val) - 1;
 
-				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+					const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 
-				if (index < 0 || index >= offering.data.payin.methods.length) {
-					// TODO: Show soft error
-					return menu.end('You have entered an invalid selection. Please try again.');
+					if (index < 0 || index >= offering.data.payin.methods.length) {
+						// TODO: Show soft error
+						return menu.end('You have entered an invalid selection. Please try again.');
+					}
+
+					const chosenPayinMethod = offering.data.payin.methods[index];
+
+					await menu.session.set('chosenPayinMethod', JSON.stringify(chosenPayinMethod));
+
+					return `${stateId}.choosePayoutMethod`;
+				} catch (error) {
+					console.error('Error in authenticated.sendMoney.choosePayinMethod next', error);
+					throw error;
 				}
-
-				const chosenPayinMethod = offering.data.payin.methods[index];
-
-				await menu.session.set('chosenPayinMethod', JSON.stringify(chosenPayinMethod));
-
-				return `${stateId}.choosePayoutMethod`;
 			},
 		},
 	});
 
 	menu.state(`${stateId}.choosePayoutMethod`, {
 		run: async () => {
+			console.log('running authenticated.sendMoney.choosePayoutMethod');
 			try {
 				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 
@@ -244,30 +281,36 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 		},
 		next: {
 			'*': async () => {
-				const index = parseInt(menu.val) - 1;
+				try {
+					const index = parseInt(menu.val) - 1;
 
-				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+					const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 
-				if (index < 0 || index >= offering.data.payout.methods.length) {
-					// TODO: Show soft error
-					return menu.end('You have entered an invalid selection. Please try again.');
+					if (index < 0 || index >= offering.data.payout.methods.length) {
+						// TODO: Show soft error
+						return menu.end('You have entered an invalid selection. Please try again.');
+					}
+
+					const chosenPayoutMethod = offering.data.payout.methods[index];
+
+					await menu.session.set('chosenPayoutMethod', JSON.stringify(chosenPayoutMethod));
+
+					if (chosenPayoutMethod.requiredPaymentDetails) {
+						return `${stateId}.specifyPayoutMethodDetails`;
+					}
+
+					return `${stateId}.specifyAmount`;
+				} catch (error) {
+					console.error('Error in authenticated.sendMoney.choosePayoutMethod next', error);
+					throw error;
 				}
-
-				const chosenPayoutMethod = offering.data.payout.methods[index];
-
-				await menu.session.set('chosenPayoutMethod', JSON.stringify(chosenPayoutMethod));
-
-				if (chosenPayoutMethod.requiredPaymentDetails) {
-					return `${stateId}.specifyPayoutMethodDetails`;
-				}
-
-				return `${stateId}.specifyAmount`;
 			},
 		},
 	});
 
 	menu.state(`${stateId}.specifyPayoutMethodDetails`, {
 		run: async () => {
+			console.log('running authenticated.sendMoney.specifyPayoutMethodDetails');
 			try {
 				const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
 
@@ -296,6 +339,7 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 
 	menu.state(`${stateId}.specifyAmount`, {
 		run: async () => {
+			console.log('running authenticated.sendMoney.specifyAmount');
 			try {
 				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 
@@ -312,6 +356,7 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 
 	menu.state(`${stateId}.requestQuote`, {
 		run: async () => {
+			console.log('running authenticated.sendMoney.requestQuote');
 			try {
 				const amount = menu.val;
 
@@ -377,6 +422,14 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 				console.error(error);
 				throw error;
 			}
+		},
+		next: {
+			'*': async () => {
+				console.log('running authenticated.sendMoney.requestQuote next');
+				console.log('input', menu.val);
+
+				return '__exit__';
+			},
 		},
 	});
 

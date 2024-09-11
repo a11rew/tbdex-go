@@ -49,7 +49,7 @@ const handler: UssdModule['handler'] = (menu, request, env) => {
 					const user = await getUserByPhoneNumber(env, request.phoneNumber);
 					await menu.session.set('user', user);
 
-					return 'authenticated.sendMoney';
+					return 'register.success';
 				} catch (error) {
 					console.error('Error in registerWithPhoneNumber', error);
 					throw error;
@@ -62,6 +62,12 @@ const handler: UssdModule['handler'] = (menu, request, env) => {
 	menu.state('registerWithDid', {
 		run: () => {
 			menu.end('You chose to register with a DID. Adding support soon.');
+		},
+	});
+
+	menu.state('register.success', {
+		run: () => {
+			menu.end('You have been registered successfully. \n\nWelcome to tbDEX go!');
 		},
 	});
 

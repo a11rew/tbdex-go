@@ -28,43 +28,58 @@ export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: Exe
 			// no-op
 		},
 		set: async (sessionId, key, value) => {
-			let stringValue = value;
+			try {
+				let stringValue = value;
 
-			// Try serializing value
-			if (typeof value !== 'string') {
-				try {
-					stringValue = JSON.stringify(value);
-				} catch (error) {
-					console.error('Error serializing value', error);
-					throw new Error('Error serializing value ' + error);
+				// Try serializing value
+				if (typeof value !== 'string') {
+					try {
+						stringValue = JSON.stringify(value);
+					} catch (error) {
+						console.error('Error serializing value', error);
+						throw new Error('Error serializing value ' + error);
+					}
 				}
-			}
 
-			// Update session state
-			await env.session_store.put(`session-${sessionId}.${key}`, stringValue);
+				// Update session state
+				await env.session_store.put(`session-${sessionId}.${key}`, stringValue);
+			} catch (error) {
+				console.error('Error in sessionConfig set', sessionId, key, error);
+				throw error;
+			}
 		},
 		end: async (sessionId) => {
-			// Clean up session state
-			let keys: string[] = [];
+			try {
+				// Clean up session state
+				let keys: string[] = [];
 
-			// List all keys for the session, paginate if necessary
-			let response = await env.session_store.list({ prefix: `session-${sessionId}.` });
-			while (!response.list_complete) {
-				keys.push(...response.keys.map((key) => key.name));
-				response = await env.session_store.list({
-					prefix: `session-${sessionId}.`,
-					cursor: response.cursor,
-				});
+				// List all keys for the session, paginate if necessary
+				let response = await env.session_store.list({ prefix: `session-${sessionId}.` });
+				while (!response.list_complete) {
+					keys.push(...response.keys.map((key) => key.name));
+					response = await env.session_store.list({
+						prefix: `session-${sessionId}.`,
+						cursor: response.cursor,
+					});
+				}
+
+				// Delete all keys for the session
+				// TODO: Use the bulk deletion API - https://developers.cloudflare.com/api/operations/workers-kv-namespace-delete-multiple-key-value-pairs
+				await Promise.all(keys.map((key) => env.session_store.delete(key)));
+			} catch (error) {
+				console.error('Error in sessionConfig end', sessionId, error);
+				throw error;
 			}
-
-			// Delete all keys for the session
-			// TODO: Use the bulk deletion API - https://developers.cloudflare.com/api/operations/workers-kv-namespace-delete-multiple-key-value-pairs
-			await Promise.all(keys.map((key) => env.session_store.delete(key)));
 		},
 		get: async (sessionId, key) => {
-			// Retrieve session state value
-			const value = await env.session_store.get(`session-${sessionId}.${key}`);
-			return value;
+			try {
+				// Retrieve session state value
+				const value = await env.session_store.get(`session-${sessionId}.${key}`);
+				return value;
+			} catch (error) {
+				console.error('Error in sessionConfig get', sessionId, key, error);
+				throw error;
+			}
 		},
 	});
 

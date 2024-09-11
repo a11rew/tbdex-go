@@ -5,8 +5,8 @@ export const users = sqliteTable('users', {
 	id: text('id')
 		.primaryKey()
 		.$defaultFn(() => createId()),
-	did: text('did').notNull(),
-	phoneNumber: text('phone_number').notNull(),
+	did: text('did').notNull().unique(),
+	phoneNumber: text('phone_number').notNull().unique(),
 });
 
 export type User = typeof users.$inferSelect;

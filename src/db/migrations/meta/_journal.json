@@ -15,6 +15,13 @@
       "when": 1726007991952,
       "tag": "0001_wise_yellowjacket",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1726064643522,
+      "tag": "0002_romantic_random",
+      "breakpoints": true
     }
   ]
 }
