@@ -16,7 +16,7 @@ export function getCredentialCreationRequirements(id: string) {
 	return vcs.schema;
 }
 
-export async function createCredential(id: string, data: Record<string, string>) {
+export async function createCredential(userDidURI: string, id: string, data: Record<string, string>) {
 	const vcs = KnownVcs.find((vc) => vc.id === id);
 
 	if (!vcs) {
@@ -27,7 +27,7 @@ export async function createCredential(id: string, data: Record<string, string>)
 
 	const parsedData = vcs.schema.parse(data);
 
-	const vc = await vcs.obtain(parsedData);
+	const vc = await vcs.obtain(userDidURI, parsedData);
 
 	return vc;
 }
@@ -46,11 +46,7 @@ export async function getCustomerCredentials(env: Env, userId: string) {
 	// TODO: Read from DWN
 	const db = drizzle(env.DB);
 
-	console.log('user id', userId);
-
 	const customerCredentials = await db.select().from(credentials).where(eq(credentials.user_id, userId));
-
-	console.log('customer credentials', customerCredentials);
 
 	return customerCredentials.map((credential) => credential.vc);
 }

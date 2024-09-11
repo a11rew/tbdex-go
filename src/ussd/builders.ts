@@ -25,8 +25,6 @@ export async function buildFormMenu<T extends Record<string, string>>(
 	for (let i = 0; i < fields.length; i++) {
 		const field = fields[i];
 
-		console.log('registering', `${formKey}.${String(field.key)}`);
-
 		menu.state(`${formKey}.${String(field.key)}`, {
 			run: () => {
 				menu.con(field.label);

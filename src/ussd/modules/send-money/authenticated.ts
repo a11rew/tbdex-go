@@ -2,9 +2,9 @@ import { User } from '@/db/schema';
 import { fetchPFIOfferings } from '@/pfis';
 import { UssdRequest } from '@/ussd';
 import { buildFormMenu } from '@/ussd/builders';
-import { getCustomerCredentials } from '@/vc';
+import { createCredential, getCustomerCredentials, saveCustomerCredential } from '@/vc';
+import { KnownVcs, workerCompatiblePexSelect } from '@/vc/known-vcs';
 import { Offering, PayinMethod, PayoutMethod, Rfq } from '@tbdex/http-client';
-import { PresentationExchange } from '@web5/credentials';
 import { PortableDid } from '@web5/dids';
 import UssdMenu from 'ussd-builder';
 
@@ -54,9 +54,6 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 					const input = menu.val;
 					const index = parseInt(input) - 1;
 
-					console.log('input', input);
-					console.log('index', index);
-
 					const offeringsByPayoutCurrencyCode = JSON.parse(await menu.session.get('offeringsByPayoutCurrencyCode')) as Record<
 						string,
 						Offering[]
@@ -93,7 +90,6 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 				>;
 
 				console.log('selectPayinCurrency.payoutCurrencyCode', payoutCurrencyCode);
-				// console.log('selectPayinCurrency.offeringsByPayoutCurrencyCode', offeringsByPayoutCurrencyCode);
 
 				// Fetch offerings that support the selected payout currency code
 				const offerings = offeringsByPayoutCurrencyCode[payoutCurrencyCode];
@@ -301,7 +297,7 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 							.map(([, detail], index) => `${index + 1}. ${detail.title} - ${detail.description}`)
 							.join('\n') +
 						'\n\n' +
-						`To begin, enter the ${Object.values(properties)[0].title}.`,
+						`To begin, enter the value of "${Object.values(properties)[0].title}".`,
 				);
 			} catch (error) {
 				console.error(error);
@@ -484,8 +480,165 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 		next: {
 			'*': async () => {
 				await menu.session.set('payinAmount', menu.val);
-				return `${stateId}.requestQuote`;
+
+				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+
+				if (!offering.data.requiredClaims) {
+					return `${stateId}.requestQuote`;
+				}
+
+				const serializedUser = await menu.session.get('user');
+				if (!serializedUser) {
+					return menu.end('You are not logged in. Please login to continue.');
+				}
+
+				const user = JSON.parse(serializedUser) as User;
+				const userCredentials = await getCustomerCredentials(env, user.id);
+
+				console.log('offering.data.requiredClaims', offering.data.requiredClaims);
+
+				// Validate user has required claims
+				const selectedCredentials = workerCompatiblePexSelect({
+					presentationDefinition: offering.data.requiredClaims,
+					vcJwts: userCredentials,
+				});
+
+				// User has all required credentials
+				if (selectedCredentials.length === offering.data.requiredClaims.input_descriptors.length) {
+					return `${stateId}.requestQuote`;
+				}
+
+				return `${stateId}.validateCredentials`;
 			},
+		},
+	});
+
+	menu.state(`${stateId}.validateCredentials`, {
+		run: async () => {
+			try {
+				console.log('running authenticated.sendMoney.validateCredentials');
+				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+
+				if (!offering.data.requiredClaims) {
+					throw new Error('Offering does not require any claims');
+				}
+
+				const creatableCredentials = offering.data.requiredClaims.input_descriptors.filter((descriptor) =>
+					KnownVcs.some((knownCredential) => knownCredential.id === descriptor.id),
+				);
+
+				// Some of the required credentials are not creatable
+				if (
+					creatableCredentials.length < offering.data.requiredClaims.input_descriptors.length ||
+					// TODO: Add support for creating multiple credentials at once
+					offering.data.requiredClaims.input_descriptors.length - creatableCredentials.length > 1
+				) {
+					// TODO: Show soft error
+					return menu.end(
+						'You do not have the required claims to proceed and we cannot create them for you. Contact an issuer to get the required credentials.',
+					);
+				}
+
+				// All required credentials are creatable
+				// Build claim creation form for one credential
+				const creatableCredential = creatableCredentials[0];
+				const knownCredential = KnownVcs.find((knownCredential) => knownCredential.id === creatableCredential.id)!;
+
+				const claimCreationFormKey = 'claimCreationForm';
+				await menu.session.set(claimCreationFormKey, {});
+				await menu.session.set('creatableCredentialId', creatableCredential.id);
+				await menu.session.set('claimCreationFormFirstValueKey', Object.keys(knownCredential.schema.shape)[0]);
+
+				console.log('knownCredential.schema', Object.entries(knownCredential.schema.shape));
+
+				const additionalFormFields = Object.entries(knownCredential.schema.shape)
+					.slice(1)
+					.map(([key, detail], index) => {
+						return {
+							key,
+							label: `${index + 2}. ${detail.description}`,
+						};
+					});
+
+				await menu.session.set('claimCreationFormAdditionalFields', JSON.stringify(additionalFormFields));
+
+				menu.con(
+					`You need to provide the following details for the verifiable credential required by this PFI` +
+						'\n\n' +
+						Object.entries(knownCredential.schema.shape)
+							.map(([key, detail], index) => `${index + 1}. ${detail.description}`)
+							.join('\n') +
+						'\n\n' +
+						`To begin, enter the value of "${Object.values(knownCredential.schema.shape)[0].description}".`,
+				);
+			} catch (error) {
+				console.error(error);
+				throw error;
+			}
+		},
+		next: {
+			'*': async () => {
+				const input = menu.val;
+				const formKey = await menu.session.get('claimCreationFormKey');
+				const firstValueKey = await menu.session.get('claimCreationFormFirstValueKey');
+				const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
+
+				await menu.session.set(formKey, {
+					...formValuesInSession,
+					[firstValueKey]: input,
+				});
+
+				// Build form menu if there is more than one field to fill
+				const additionalFormFields = JSON.parse(await menu.session.get('claimCreationFormAdditionalFields')) as {
+					key: string;
+					label: string;
+				}[];
+				if (additionalFormFields.length > 0) {
+					const additionalFormFieldsEntryPoint = await buildFormMenu(menu, formKey, additionalFormFields, async (form) => {
+						const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
+
+						await menu.session.set(formKey, {
+							...formValuesInSession,
+							...form,
+						});
+
+						return `${stateId}.createCredential`;
+					});
+
+					return additionalFormFieldsEntryPoint;
+				}
+
+				return `${stateId}.createCredential`;
+			},
+		},
+	});
+
+	menu.state(`${stateId}.createCredential`, {
+		run: async () => {
+			console.log('running authenticated.sendMoney.createCredential');
+			try {
+				const formKey = await menu.session.get('claimCreationFormKey');
+				const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
+				const creatableCredentialId = await menu.session.get('creatableCredentialId');
+
+				const serializedUser = await menu.session.get('user');
+				if (!serializedUser) {
+					return menu.end('You are not logged in. Please login to continue.');
+				}
+				const user = JSON.parse(serializedUser) as User;
+				const userDID = JSON.parse(user.did) as PortableDid;
+
+				console.log('formValuesInSession for credential creation', formValuesInSession);
+
+				const credential = await createCredential(userDID.uri, creatableCredentialId, formValuesInSession);
+
+				await saveCustomerCredential(env, user.id, credential);
+
+				menu.go(`${stateId}.requestQuote`);
+			} catch (error) {
+				console.error(error);
+				throw error;
+			}
 		},
 	});
 
@@ -495,38 +648,30 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 			try {
 				const amount = await menu.session.get('payinAmount');
 
-				console.log('amount', amount);
-
 				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 				const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
 				const chosenPayinMethod = JSON.parse(await menu.session.get('chosenPayinMethod')) as PayinMethod;
 
-				const serializedUser = await menu.session.get('user');
+				const payinMethodDetailsStorageKey = await menu.session.get('payinMethodDetailsFormKey');
+				const payoutMethodDetailsStorageKey = await menu.session.get('payoutMethodDetailsFormKey');
+				const payinMethodDetails = JSON.parse(await menu.session.get(payinMethodDetailsStorageKey)) as Record<string, string> | undefined;
+				const payoutMethodDetails = JSON.parse(await menu.session.get(payoutMethodDetailsStorageKey)) as Record<string, string> | undefined;
 
+				const serializedUser = await menu.session.get('user');
 				if (!serializedUser) {
 					return menu.end('You are not logged in. Please login to continue.');
 				}
 
 				const user = JSON.parse(serializedUser) as User;
-
-				if (offering.data.requiredClaims) {
-					const userCredentials = await getCustomerCredentials(env, user.id);
-
-					// Validate user has required claims
-					const selectedCredentials = PresentationExchange.selectCredentials({
-						presentationDefinition: offering.data.requiredClaims,
-						vcJwts: userCredentials,
-					});
-
-					if (selectedCredentials.length < offering.data.requiredClaims.input_descriptors.length) {
-						// TODO: Show soft error
-						return menu.end(
-							'You do not have the required claims to proceed and we cannot create them for you. Contact an issuer to get the required credentials.',
-						);
-					}
-				}
-
 				const userDID = JSON.parse(user.did) as PortableDid;
+				const userCredentials = await getCustomerCredentials(env, user.id);
+
+				const selectedCredentials = offering.data.requiredClaims
+					? workerCompatiblePexSelect({
+							presentationDefinition: offering.data.requiredClaims,
+							vcJwts: userCredentials,
+						})
+					: [];
 
 				// Request quote
 				const rfq = Rfq.create({
@@ -536,37 +681,31 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 						protocol: '1.0',
 					},
 					data: {
-						offeringId: offering.id,
+						offeringId: offering.metadata.id,
 						payin: {
 							amount: amount.toString(),
 							kind: chosenPayinMethod.kind,
-							paymentDetails: {},
+							paymentDetails: payinMethodDetails ?? {},
 						},
 						payout: {
 							kind: chosenPayoutMethod.kind,
-							paymentDetails: {},
-							// chosenPayoutMethodPaymentDetails,
+							paymentDetails: payoutMethodDetails ?? {},
 						},
+						claims: selectedCredentials,
 					},
 				});
 
 				console.log('rfq', rfq);
 
 				menu.end(
-					'Work in progress: Validate user has required claims (and create a claim if not) and request quote from PFI. \n\nCome back soon!',
+					`You have requested a quote for ${amount} ${offering.data.payin.currencyCode} -> ${offering.data.payout.currencyCode}` +
+						'\n\n' +
+						`You will receive a notification via SMS when the PFI has accepted your request.`,
 				);
 			} catch (error) {
 				console.error(error);
 				throw error;
 			}
-		},
-		next: {
-			'*': async () => {
-				console.log('running authenticated.sendMoney.requestQuote next');
-				console.log('input', menu.val);
-
-				return '__exit__';
-			},
 		},
 	});
 
