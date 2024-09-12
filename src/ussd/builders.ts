@@ -51,3 +51,24 @@ export async function buildFormMenu<T extends Record<string, string>>(
 
 	return entryPoint;
 }
+
+export async function buildContinueResponseWithErrors(menu: UssdMenu, text: string) {
+	// Reads the special error key from the session and returns a continue response with the error message
+	const error = await menu.session.get('__error__');
+
+	const message = [error && error + '\n', text].filter(Boolean).join('\n');
+
+	// Clear the error from the session
+	await menu.session.set('__error__', '');
+
+	return menu.con(message);
+}
+
+export const sessionErrors = {
+	set: async (menu: UssdMenu, error: string) => {
+		await menu.session.set('__error__', error);
+	},
+	clear: async (menu: UssdMenu) => {
+		await menu.session.set('__error__', '');
+	},
+};

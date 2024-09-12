@@ -1,11 +1,14 @@
-import { User } from '@/db/schema';
+import { transactions, User } from '@/db/schema';
+import { resolveDID } from '@/did';
 import { fetchPFIOfferings } from '@/pfis';
 import { UssdRequest } from '@/ussd';
-import { buildFormMenu } from '@/ussd/builders';
+import { buildContinueResponseWithErrors, buildFormMenu, sessionErrors } from '@/ussd/builders';
 import { createCredential, getCustomerCredentials, saveCustomerCredential } from '@/vc';
 import { KnownVcs, workerCompatiblePexSelect } from '@/vc/known-vcs';
-import { Offering, PayinMethod, PayoutMethod, Rfq } from '@tbdex/http-client';
+import { Validator } from '@cfworker/json-schema';
+import { Offering, PayinMethod, PayoutMethod, Rfq, TbdexHttpClient } from '@tbdex/http-client';
 import { PortableDid } from '@web5/dids';
+import { drizzle } from 'drizzle-orm/d1';
 import UssdMenu from 'ussd-builder';
 
 const stateId = 'authenticated.sendMoney';
@@ -290,7 +293,8 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 
 				await menu.session.set('payinMethodDetailsFormAdditionalFields', JSON.stringify(additionalFormFields));
 
-				menu.con(
+				return await buildContinueResponseWithErrors(
+					menu,
 					`You need to provide the following details for the ${chosenPayinMethod.name ?? chosenPayinMethod.kind} payin method.` +
 						'\n\n' +
 						Object.entries(properties)
@@ -309,12 +313,16 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 				const input = menu.val;
 				const formKey = await menu.session.get('payinMethodDetailsFormKey');
 				const firstValueKey = await menu.session.get('payinMethodDetailsFormFirstValueKey');
+				const chosenPayinMethod = JSON.parse(await menu.session.get('chosenPayinMethod')) as PayinMethod;
+
 				const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
 
-				await menu.session.set(formKey, {
+				const updatedFormValues = {
 					...formValuesInSession,
 					[firstValueKey]: input,
-				});
+				};
+
+				await menu.session.set(formKey, updatedFormValues);
 
 				// Build form menu if there is more than one field to fill
 				const additionalFormFields = JSON.parse(await menu.session.get('payinMethodDetailsFormAdditionalFields')) as {
@@ -325,15 +333,55 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 					const additionalFormFieldsEntryPoint = await buildFormMenu(menu, formKey, additionalFormFields, async (form) => {
 						const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
 
-						await menu.session.set(formKey, {
+						const updatedFormValues = {
 							...formValuesInSession,
 							...form,
-						});
+						};
+
+						await menu.session.set(formKey, updatedFormValues);
+
+						// Validate form values
+						if (chosenPayinMethod.requiredPaymentDetails) {
+							const validator = new Validator(chosenPayinMethod.requiredPaymentDetails);
+							const { valid, errors } = validator.validate(updatedFormValues);
+							if (!valid) {
+								console.log('payin method details are invalid', errors);
+								await sessionErrors.set(
+									menu,
+									'The provided payin method details are invalid. Please try again.' +
+										'\n' +
+										errors.map((error) => `${error.keyword}: ${error.error}`).join('\n') +
+										'\n',
+								);
+								return `${stateId}.specifyPayinMethodDetails`;
+							} else {
+								await sessionErrors.clear(menu);
+							}
+						}
 
 						return `${stateId}.choosePayoutMethod`;
 					});
 
 					return additionalFormFieldsEntryPoint;
+				}
+
+				// Validate form values
+				if (chosenPayinMethod.requiredPaymentDetails) {
+					const validator = new Validator(chosenPayinMethod.requiredPaymentDetails);
+					const { valid, errors } = validator.validate(updatedFormValues);
+					if (!valid) {
+						console.log('payin method details are invalid', errors);
+						await sessionErrors.set(
+							menu,
+							'The provided payin method details are invalid. Please try again.' +
+								'\n' +
+								errors.map((error) => `${error.keyword}: ${error.error}`).join('\n') +
+								'\n',
+						);
+						return `${stateId}.specifyPayinMethodDetails`;
+					} else {
+						await sessionErrors.clear(menu);
+					}
 				}
 
 				return `${stateId}.choosePayoutMethod`;
@@ -410,7 +458,8 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 
 				await menu.session.set('payoutMethodDetailsFormAdditionalFields', JSON.stringify(additionalFormFields));
 
-				menu.con(
+				return await buildContinueResponseWithErrors(
+					menu,
 					`You need to provide the following details for the ${chosenPayoutMethod.name ?? chosenPayoutMethod.kind} payout method.` +
 						'\n\n' +
 						Object.entries(properties)
@@ -426,34 +475,81 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 		},
 		next: {
 			'*': async () => {
+				console.log('running authenticated.sendMoney.specifyPayoutMethodDetails next');
 				const input = menu.val;
 				const formKey = await menu.session.get('payoutMethodDetailsFormKey');
+				const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
 				const firstValueKey = await menu.session.get('payoutMethodDetailsFormFirstValueKey');
 				const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
 
-				await menu.session.set(formKey, {
+				const updatedFormValues = {
 					...formValuesInSession,
 					[firstValueKey]: input,
-				});
+				};
+
+				await menu.session.set(formKey, updatedFormValues);
 
 				// Build form menu if there is more than one field to fill
 				const additionalFormFields = JSON.parse(await menu.session.get('payoutMethodDetailsFormAdditionalFields')) as {
 					key: string;
 					label: string;
 				}[];
+
 				if (additionalFormFields.length > 0) {
 					const additionalFormFieldsEntryPoint = await buildFormMenu(menu, formKey, additionalFormFields, async (form) => {
 						const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
 
-						await menu.session.set(formKey, {
+						const updatedFormValues = {
 							...formValuesInSession,
 							...form,
-						});
+						};
+
+						await menu.session.set(formKey, updatedFormValues);
+
+						// Validate form values
+						if (chosenPayoutMethod.requiredPaymentDetails) {
+							const validator = new Validator(chosenPayoutMethod.requiredPaymentDetails);
+							const { valid, errors } = validator.validate(updatedFormValues);
+							if (!valid) {
+								console.log('payout method details are invalid', errors);
+								await sessionErrors.set(
+									menu,
+									'The provided payin method details are invalid. Please try again.' +
+										'\n' +
+										errors.map((error) => `${error.keyword}: ${error.error}`).join('\n') +
+										'\n',
+								);
+								return `${stateId}.specifyPayinMethodDetails`;
+							} else {
+								console.log('payout method details are valid', updatedFormValues, chosenPayoutMethod.requiredPaymentDetails);
+								await sessionErrors.clear(menu);
+							}
+						}
 
 						return `${stateId}.specifyAmount`;
 					});
 
 					return additionalFormFieldsEntryPoint;
+				}
+
+				// Validate form values
+				if (chosenPayoutMethod.requiredPaymentDetails) {
+					const validator = new Validator(chosenPayoutMethod.requiredPaymentDetails);
+					const { valid, errors } = validator.validate(updatedFormValues);
+					if (!valid) {
+						console.log('payout method details are invalid', errors);
+						await sessionErrors.set(
+							menu,
+							'The provided payin method details are invalid. Please try again.' +
+								'\n' +
+								errors.map((error) => `${error.keyword}: ${error.error}`).join('\n') +
+								'\n',
+						);
+						return `${stateId}.specifyPayinMethodDetails`;
+					} else {
+						console.log('payout method details are valid', updatedFormValues, chosenPayoutMethod.requiredPaymentDetails);
+						await sessionErrors.clear(menu);
+					}
 				}
 
 				return `${stateId}.specifyAmount`;
@@ -465,13 +561,24 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 		run: async () => {
 			console.log('running authenticated.sendMoney.specifyAmount');
 			try {
+				const error = await menu.session.get('specifyAmount.error');
 				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 				const formKey = await menu.session.get('payoutMethodDetailsFormKey');
 				const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
 
 				console.log('formValuesInSession', formValuesInSession);
 
-				menu.con(`Enter the amount you want to send in ${offering.data.payin.currencyCode}.`);
+				return await buildContinueResponseWithErrors(
+					menu,
+					[
+						error && error + '\n',
+						`Enter the amount you want to send in ${offering.data.payin.currencyCode}.`,
+						offering.data.payin.min && `The minimum amount you can send is ${offering.data.payin.min} ${offering.data.payin.currencyCode}.`,
+						offering.data.payin.max && `The maximum amount you can send is ${offering.data.payin.max} ${offering.data.payin.currencyCode}.`,
+					]
+						.filter(Boolean)
+						.join('\n'),
+				);
 			} catch (error) {
 				console.error(error);
 				throw error;
@@ -479,9 +586,26 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 		},
 		next: {
 			'*': async () => {
-				await menu.session.set('payinAmount', menu.val);
-
+				const payinAmount = menu.val;
 				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+
+				// Validate payin amount
+				const payinAmountBigInt = BigInt(payinAmount);
+				if (payinAmountBigInt < BigInt(offering.data.payin.min ?? 0)) {
+					await sessionErrors.set(menu, 'The amount you entered is below the minimum allowed. Please try again.');
+					return `${stateId}.specifyAmount`;
+				} else {
+					await sessionErrors.clear(menu);
+				}
+
+				if (offering.data.payin.max && payinAmountBigInt > BigInt(offering.data.payin.max)) {
+					await sessionErrors.set(menu, 'The amount you entered is above the maximum allowed. Please try again.');
+					return `${stateId}.specifyAmount`;
+				} else {
+					await sessionErrors.clear(menu);
+				}
+
+				await menu.session.set('payinAmount', payinAmount);
 
 				if (!offering.data.requiredClaims) {
 					return `${stateId}.requestQuote`;
@@ -548,8 +672,6 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 				await menu.session.set(claimCreationFormKey, {});
 				await menu.session.set('creatableCredentialId', creatableCredential.id);
 				await menu.session.set('claimCreationFormFirstValueKey', Object.keys(knownCredential.schema.shape)[0]);
-
-				console.log('knownCredential.schema', Object.entries(knownCredential.schema.shape));
 
 				const additionalFormFields = Object.entries(knownCredential.schema.shape)
 					.slice(1)
@@ -695,7 +817,27 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 					},
 				});
 
-				console.log('rfq', rfq);
+				// Sign RFQ
+				const userBearerDid = await resolveDID(env, userDID);
+				await rfq.sign(userBearerDid);
+
+				// Submit RFQ
+				await TbdexHttpClient.createExchange(rfq);
+
+				const db = drizzle(env.DB);
+				await db.insert(transactions).values({
+					user_id: user.id,
+					rfqId: rfq.metadata.id,
+					exchangeId: rfq.metadata.exchangeId,
+					offeringId: rfq.data.offeringId,
+					payinMethod: rfq.data.payin.kind,
+					payinKind: rfq.data.payin.kind,
+					payoutMethod: rfq.data.payout.kind,
+					payoutKind: rfq.data.payout.kind,
+					amount: amount.toString(),
+					status: 'pending',
+					createdAt: rfq.metadata.createdAt,
+				});
 
 				menu.end(
 					`You have requested a quote for ${amount} ${offering.data.payin.currencyCode} -> ${offering.data.payout.currencyCode}` +

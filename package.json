@@ -20,6 +20,7 @@
 		"wrangler": "^3.74.0"
 	},
 	"dependencies": {
+		"@cfworker/json-schema": "^2.0.1",
 		"@paralleldrive/cuid2": "^2.2.2",
 		"@tbdex/http-client": "1.1.0",
 		"@web5/api": "^0.10.0",
