@@ -36,6 +36,34 @@
       "when": 1726147422399,
       "tag": "0004_serious_tinkerer",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1726175212444,
+      "tag": "0005_futuristic_gideon",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1726270002248,
+      "tag": "0006_careless_microchip",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1726271533154,
+      "tag": "0007_youthful_sauron",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1726353713112,
+      "tag": "0008_empty_mastermind",
+      "breakpoints": true
     }
   ]
 }

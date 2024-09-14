@@ -5,6 +5,11 @@ compatibility_date = "2024-08-21"
 
 node_compat = true
 
+[triggers]
+# Schedule cron triggers:
+# - At every minute
+crons = [ "*/1 * * * *" ]
+
 # Automatically place your workloads in an optimal location to minimize latency.
 # If you are running back-end logic in a Worker, running it closer to your back-end infrastructure
 # rather than the end user may result in better performance.
@@ -77,6 +82,9 @@ id = "45012e1778af46ff82ea278295b653bb"
 [[kv_namespaces]]
 binding = "data_cache"
 id = "4c78d12a37cc4163ac43e06249c9e23a"
+[[kv_namespaces]]
+binding = "locks"
+id = "848282cf113b45869ee9a0e2987731a1"
 
 # Bind an mTLS certificate. Use to present a client certificate when communicating with another service.
 # Docs: https://developers.cloudflare.com/workers/wrangler/configuration/#mtls-certificates

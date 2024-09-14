@@ -1,3 +1,5 @@
+import { updateExchanges } from './exchanges';
+import { handleSMSNotification } from './exchanges/notification-handler';
 import { handleUSSDRequest } from './ussd';
 
 export default {
@@ -10,6 +12,13 @@ export default {
 	 * @returns The response to be sent back to the client
 	 */
 	async fetch(request, env, ctx): Promise<Response> {
+		const url = new URL(request.url);
+		const urlPath = url.pathname;
+
+		if (urlPath.startsWith('/sms-notification')) {
+			return await handleSMSNotification(request, env);
+		}
+
 		if (!request.body) {
 			return new Response('No request body', { status: 400 });
 		}
@@ -25,5 +34,12 @@ export default {
 		);
 
 		return new Response(response);
+	},
+	async scheduled(event, env, ctx) {
+		ctx.waitUntil(
+			updateExchanges(env).catch((error) => {
+				console.error('Error in update exchanges handler', error);
+			}),
+		);
 	},
 } satisfies ExportedHandler<Env>;

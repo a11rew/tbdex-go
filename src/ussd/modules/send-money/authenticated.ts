@@ -1,4 +1,4 @@
-import { transactions, User } from '@/db/schema';
+import { transactions, DbUser as User } from '@/db/schema';
 import { resolveDID } from '@/did';
 import { fetchPFIOfferings } from '@/pfis';
 import { UssdRequest } from '@/ussd';
@@ -826,16 +826,14 @@ export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequ
 
 				const db = drizzle(env.DB);
 				await db.insert(transactions).values({
-					user_id: user.id,
-					rfqId: rfq.metadata.id,
-					exchangeId: rfq.metadata.exchangeId,
-					offeringId: rfq.data.offeringId,
-					payinMethod: rfq.data.payin.kind,
-					payinKind: rfq.data.payin.kind,
-					payoutMethod: rfq.data.payout.kind,
-					payoutKind: rfq.data.payout.kind,
 					amount: amount.toString(),
 					status: 'pending',
+					user_id: user.id,
+					pfiDid: offering.metadata.from,
+					exchangeId: rfq.metadata.exchangeId,
+					offeringId: rfq.data.offeringId,
+					payinKind: rfq.data.payin.kind,
+					payoutKind: rfq.data.payout.kind,
 					createdAt: rfq.metadata.createdAt,
 				});
 
