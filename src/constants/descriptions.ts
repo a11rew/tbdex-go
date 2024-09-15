@@ -21,6 +21,6 @@ export function makeHumanReadablePaymentMethod(method: string) {
 	return `${currencyDescriptions[segments[0]]} ${toTitleCase(segments.slice(1).join(' '))}`;
 }
 
-function toTitleCase(str: string) {
+export function toTitleCase(str: string) {
 	return str.replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
 }

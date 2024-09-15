@@ -5,6 +5,7 @@ import { UssdRequest } from '..';
 import { buildRunHandler } from '../builders';
 import profileModule from './profile';
 import sendMoneyModule from './send-money';
+import transactionHistoryModule from './transaction-history';
 
 export type UssdModule = {
 	id: string;
@@ -13,7 +14,7 @@ export type UssdModule = {
 	nextHandler?: (menu: UssdMenu, request: UssdRequest, env: Env, ctx: ExecutionContext) => string | Promise<string>;
 };
 
-const modules = [sendMoneyModule, profileModule] satisfies UssdModule[];
+const modules = [sendMoneyModule, profileModule, transactionHistoryModule] satisfies UssdModule[];
 
 export async function registerModules(menu: UssdMenu, request: UssdRequest, env: Env, ctx: ExecutionContext) {
 	modules.forEach((module) => {
@@ -27,7 +28,7 @@ export async function registerModules(menu: UssdMenu, request: UssdRequest, env:
 					'Choose an option below to continue:\n' +
 					`1. ${sendMoneyModule.description}\n` +
 					`2. ${profileModule.description}\n` +
-					`3. See Transaction History\n` +
+					`3. ${transactionHistoryModule.description}\n` +
 					`4. Transaction Credits\n` +
 					`5. Help and Support\n\n` +
 					`#. Exit`,
@@ -36,7 +37,7 @@ export async function registerModules(menu: UssdMenu, request: UssdRequest, env:
 		next: {
 			1: sendMoneyModule.id,
 			2: profileModule.id,
-			3: 'transactionHistory',
+			3: transactionHistoryModule.id,
 			4: 'transactionCredits',
 			5: 'helpAndSupport',
 			'#': '__exit__',

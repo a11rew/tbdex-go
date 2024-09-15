@@ -7,7 +7,7 @@ import {
 	insertQuote,
 	updateTransactionStatus,
 } from '@/db/helpers';
-import { DbTransaction, DbUser } from '@/db/schema';
+import { DbTransaction, DbUser, transactions } from '@/db/schema';
 import {
 	publishCloseNotificationSMS,
 	publishOrderNotificationSMS,
@@ -15,6 +15,7 @@ import {
 	publishStatusUpdateNotificationSMS,
 } from '@/sms';
 import { Close, Order, OrderStatus, Quote } from '@tbdex/http-client';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
 export async function processQuote(env: Env, user: DbUser, transaction: DbTransaction, quotes: Quote[]) {
@@ -101,4 +102,12 @@ export async function processOrderStatusUpdate(
 			created_at: update.metadata.createdAt,
 		});
 	}
+}
+
+export async function getTransactionHistory(env: Env, userId: string) {
+	const db = drizzle(env.DB);
+
+	const userTransactions = await db.select().from(transactions).where(eq(transactions.user_id, userId));
+
+	return userTransactions;
 }
