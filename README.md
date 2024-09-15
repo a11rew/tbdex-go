@@ -39,6 +39,14 @@ We use SMS powered by AfricasTalking to send notifications to users. These SMS c
 - [AfricasTalking (SMS and USSD provider)](https://africastalking.com/)
 - [TypeScript](https://www.typescriptlang.org/)
 
+## UX Overview
+
+<a href='https://www.figma.com/board/c577KEhnqs6hIV4pEDo73F/tbDEX-GO-User-Flow?node-id=0-1&node-type=canvas&t=SFKh7ZPE54XCMT2f-0'>tbDEX Go UX Flow</a>
+
+<a href='https://www.figma.com/board/c577KEhnqs6hIV4pEDo73F/tbDEX-GO-User-Flow?node-id=0-1&node-type=canvas&t=SFKh7ZPE54XCMT2f-0'>
+<img src='./assets/flow-overview.png' alt='tbDEX Go UX Flow Screenshot' />
+</a>
+
 ## Future Roadmap
 
 - [ ] DID Imports and Exports
