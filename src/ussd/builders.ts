@@ -1,4 +1,4 @@
-import UssdMenu from 'ussd-builder';
+import UssdMenu, { UssdStateOptions } from 'ussd-builder';
 
 type Field<T extends Record<string, string>> = {
 	key: keyof T;
@@ -72,3 +72,15 @@ export const sessionErrors = {
 		await menu.session.set('__error__', '');
 	},
 };
+
+// Adds error handling to the run function of a state
+export function buildRunHandler(fn: () => Promise<void> | void) {
+	return (async (state: { name: string }) => {
+		try {
+			return await fn();
+		} catch (error) {
+			console.error(`Error in run handler for state ${state.name}:`, error);
+			throw error;
+		}
+	}) as unknown as UssdStateOptions['run'];
+}

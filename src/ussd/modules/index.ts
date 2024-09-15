@@ -2,6 +2,7 @@ import UssdMenu from 'ussd-builder';
 
 import { getUserByPhoneNumber, registerUser } from '@/user';
 import { UssdRequest } from '..';
+import { buildRunHandler } from '../builders';
 import profileModule from './profile';
 import sendMoneyModule from './send-money';
 
@@ -20,7 +21,7 @@ export async function registerModules(menu: UssdMenu, request: UssdRequest, env:
 	});
 
 	menu.state('user.registered', {
-		run: () => {
+		run: buildRunHandler(() => {
 			menu.con(
 				'Welcome to tbDEX Go.\n\n' +
 					'Choose an option below to continue:\n' +
@@ -31,7 +32,7 @@ export async function registerModules(menu: UssdMenu, request: UssdRequest, env:
 					`5. Help and Support\n\n` +
 					`#. Exit`,
 			);
-		},
+		}),
 		next: {
 			1: sendMoneyModule.id,
 			2: profileModule.id,
@@ -43,14 +44,14 @@ export async function registerModules(menu: UssdMenu, request: UssdRequest, env:
 	});
 
 	menu.state('user.not_registered', {
-		run: () => {
+		run: buildRunHandler(() => {
 			menu.con(
 				'Welcome to tbDEX Go.\n\n' +
 					'To get started, create or import your Decentralized ID (DID). Your DID allows you to send money across borders instantly and securely.\n\n' +
 					'1. Create a New DID\n' +
 					'2. Import Existing DID\n',
 			);
-		},
+		}),
 		next: {
 			1: 'createNewDID',
 			2: 'importExistingDID',
@@ -58,14 +59,14 @@ export async function registerModules(menu: UssdMenu, request: UssdRequest, env:
 	});
 
 	menu.state('createNewDID', {
-		run: () => {
+		run: buildRunHandler(() => {
 			menu.con(
 				`We'll create a unique DID linked to your mobile number. You can access your DID from your profile anytime.\n\nYou'll be signed up to tbDEX Go using ${request.phoneNumber}.` +
 					'\n\n1. Confirm' +
 					'\n\n0. Go Back' +
 					'\n#. Exit',
 			);
-		},
+		}),
 		next: {
 			1: async () => {
 				try {
@@ -86,23 +87,23 @@ export async function registerModules(menu: UssdMenu, request: UssdRequest, env:
 	});
 
 	menu.state('register.success', {
-		run: () => {
+		run: buildRunHandler(() => {
 			menu.end(
 				'Welcome to tbDEX go!' +
 					'\n\nYou have been registered successfully.' +
-					`\n\nDial ${request.serviceCode.split('#')[0]}# to use tbDEX Go.`,
+					`\n\nDial ${request.serviceCode} to access tbDEX Go at any time.`,
 			);
-		},
+		}),
 	});
 
 	menu.state('importExistingDID', {
-		run: () => {
+		run: buildRunHandler(() => {
 			menu.con(
 				`You chose to import an existing DID. \n\nWe currently do not have support for DID imports, check back soon!` +
 					'\n\n0. Go Back' +
 					'\n#. Exit',
 			);
-		},
+		}),
 		next: {
 			0: 'user.not_registered',
 			'#': '__exit__',
