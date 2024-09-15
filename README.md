@@ -1,16 +1,16 @@
 # tbDEX Go
 
-Send money across borders without internet access, powered by tbDex.
+Traveler on the go stranded in another country without internet access? Pay for your taxi, lunch and more with tbDEX Go.
 
 ## Overview
 
-tbDEX Go is a mobile application that allows users to send money across borders without internet access. It is powered by tbDex, a decentralized exchange protocol that allows for peer-to-peer financial transactions without intermediaries.
+tbDEX Go is a mobile application that allows users to send money across currencies without internet access. It is powered by tbDex, a decentralized exchange protocol that allows for peer-to-peer financial transactions without intermediaries.
 
 tbDEX Go is accessible via USSD (Unstructured Supplementary Service Data), a GSM protocol that is used to send and receive messages from mobile phones without using the internet.
 
-Using USSD allows tbDEX Go to be accessible to our target market of users in Sub-Saharan Africa who have limited or no internet access but have easy access to a mobile phone and need to send and receive money.
+Using USSD allows tbDEX Go to be accessible to our target market of travelers who frequently upon landing in new locations have limited or no internet access but have easy access to a mobile phone and need to send and receive money.
 
-Mobile phone penetration in Sub-Saharan Africa is high, with over 1.3 billion mobile phone subscriptions and 60% of the global mobile phone market. Internet service provision however, badly lags behind with unreliable internet access and high costs.
+With access to any GSM/LTE network, even when roaming, users can send and receive money to/from local bank accounts. Travelers receive the best exchange rates for quick transactions at low to no fees.
 
 ## Try it out
 
@@ -38,3 +38,4 @@ We use SMS powered by AfricasTalking to send notifications to users. These SMS c
 ## Future Roadmap
 
 - [ ] DID Imports and Exports
+- [ ] More advanced PFI rating and weighting
