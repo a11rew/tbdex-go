@@ -2,7 +2,7 @@ import { currencyDescriptions, makeHumanReadablePaymentMethod } from '@/constant
 import { transactions, DbUser as User } from '@/db/schema';
 import { resolveDID } from '@/did';
 import { UssdRequest } from '@/ussd';
-import { buildContinueResponseWithErrors, buildFormMenu, buildRunHandler, sessionErrors } from '@/ussd/builders';
+import { buildContinueResponse, buildFormMenu, buildRunHandler, sessionErrors } from '@/ussd/builders';
 import { createCredential, getCustomerCredentials, saveCustomerCredential } from '@/vc';
 import { KnownVcs, workerCompatiblePexSelect } from '@/vc/known-vcs';
 import { Validator } from '@cfworker/json-schema';
@@ -28,13 +28,14 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 			const offeringsByPayoutCurrencyCode = await getOfferingsByPayoutCurrencyCode(env, menu);
 
 			// Show user available payout currencies
-			menu.con(
+			buildContinueResponse(
+				menu,
 				'Where do you want to send money to?' +
 					'\n\n' +
 					Object.keys(offeringsByPayoutCurrencyCode)
 						.map((key, index) => `${index + 1}. ${key}` + (currencyDescriptions[key] ? ` (${currencyDescriptions[key]})` : ''))
-						.join('\n') +
-					'\n\n#. Exit',
+						.join('\n'),
+				{ exit: true },
 			);
 		}),
 		next: {
@@ -65,48 +66,47 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 	});
 
 	menu.state(`${stateId}.selectPayinCurrency`, {
-		run: async () => {
+		run: buildRunHandler(async () => {
 			console.log('running authenticated.sendMoney.selectPayinCurrency');
-			try {
-				const payoutCurrencyCode = await menu.session.get('payoutCurrencyCode');
-				const offeringsByPayoutCurrencyCode = JSON.parse(await menu.session.get('offeringsByPayoutCurrencyCode')) as Record<
-					string,
-					Offering[]
-				>;
+			const payoutCurrencyCode = await menu.session.get('payoutCurrencyCode');
+			const offeringsByPayoutCurrencyCode = JSON.parse(await menu.session.get('offeringsByPayoutCurrencyCode')) as Record<
+				string,
+				Offering[]
+			>;
 
-				// Fetch offerings that support the selected payout currency code
-				const offerings = offeringsByPayoutCurrencyCode[payoutCurrencyCode];
+			// Fetch offerings that support the selected payout currency code
+			const offerings = offeringsByPayoutCurrencyCode[payoutCurrencyCode];
 
-				// Group offerings by payin currency code
-				const offeringsByPayinCurrencyCode = offerings.reduce(
-					(acc, curr) => {
-						const payinCurrencyCode = curr.data.payin.currencyCode;
-						if (!acc[payinCurrencyCode]) {
-							acc[payinCurrencyCode] = [];
-						}
+			// Group offerings by payin currency code
+			const offeringsByPayinCurrencyCode = offerings.reduce(
+				(acc, curr) => {
+					const payinCurrencyCode = curr.data.payin.currencyCode;
+					if (!acc[payinCurrencyCode]) {
+						acc[payinCurrencyCode] = [];
+					}
 
-						acc[payinCurrencyCode].push(curr);
-						return acc;
-					},
-					{} as Record<string, Offering[]>,
-				);
+					acc[payinCurrencyCode].push(curr);
+					return acc;
+				},
+				{} as Record<string, Offering[]>,
+			);
 
-				// Write offerings to session
-				await menu.session.set('offeringsByPayinCurrencyCode', JSON.stringify(offeringsByPayinCurrencyCode));
+			// Write offerings to session
+			await menu.session.set('offeringsByPayinCurrencyCode', JSON.stringify(offeringsByPayinCurrencyCode));
 
-				menu.con(
-					'Where are you sending money from?' +
-						'\n\n' +
-						Object.keys(offeringsByPayinCurrencyCode)
-							.map((key, index) => `${index + 1}. ${key}` + (currencyDescriptions[key] ? ` (${currencyDescriptions[key]})` : ''))
-							.join('\n'),
-				);
-			} catch (error) {
-				console.error(error);
-				throw error;
-			}
-		},
+			buildContinueResponse(
+				menu,
+				'Where are you sending money from?' +
+					'\n\n' +
+					Object.keys(offeringsByPayinCurrencyCode)
+						.map((key, index) => `${index + 1}. ${key}` + (currencyDescriptions[key] ? ` (${currencyDescriptions[key]})` : ''))
+						.join('\n'),
+				{ exit: true, back: true },
+			);
+		}),
 		next: {
+			'#': '__exit__',
+			'0': stateId,
 			'*': async () => {
 				try {
 					const input = menu.val;
@@ -136,7 +136,7 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 	});
 
 	menu.state(`${stateId}.chooseOffering`, {
-		run: async () => {
+		run: buildRunHandler(async () => {
 			console.log('running authenticated.sendMoney.chooseOffering');
 			try {
 				const offeringsByPayinCurrencyCode = JSON.parse(await menu.session.get('offeringsByPayinCurrencyCode')) as Record<
@@ -152,18 +152,22 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 				// Write offerings to session
 				await menu.session.set('offerings', JSON.stringify(offerings));
 
-				menu.con(
+				buildContinueResponse(
+					menu,
 					`You are sending ${payinCurrencyCode} to ${payoutCurrencyCode}.\n` +
 						'Choose an offering to proceed:\n' +
 						'\n' +
 						offerings.map((offering, index) => generateOfferingDescription(offering, index)).join('\n\n'),
+					{ back: true, exit: true },
 				);
 			} catch (error) {
 				console.error('Error in authenticated.sendMoney.chooseOffering', error);
 				throw error;
 			}
-		},
+		}),
 		next: {
+			'#': '__exit__',
+			'0': `${stateId}.selectPayinCurrency`,
 			'*': async () => {
 				try {
 					const index = parseInt(menu.val) - 1;
@@ -215,22 +219,20 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 	});
 
 	menu.state(`${stateId}.choosePayinMethod`, {
-		run: async () => {
-			console.log('running authenticated.sendMoney.choosePayinMethod');
-			try {
-				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+		run: buildRunHandler(async () => {
+			const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 
-				menu.con(
-					'Choose one of the supported payin methods to proceed.' +
-						'\n\n' +
-						offering.data.payin.methods.map((method, index) => `${index + 1}. ${makeHumanReadablePaymentMethod(method.kind)}`).join('\n'),
-				);
-			} catch (error) {
-				console.error('Error in authenticated.sendMoney.choosePayinMethod', error);
-				throw error;
-			}
-		},
+			buildContinueResponse(
+				menu,
+				'Choose one of the supported payin methods to proceed.' +
+					'\n\n' +
+					offering.data.payin.methods.map((method, index) => `${index + 1}. ${makeHumanReadablePaymentMethod(method.kind)}`).join('\n'),
+				{ back: true, exit: true },
+			);
+		}),
 		next: {
+			'#': '__exit__',
+			'0': `${stateId}.chooseOffering`,
 			'*': async () => {
 				try {
 					const index = parseInt(menu.val) - 1;
@@ -260,47 +262,45 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 	});
 
 	menu.state(`${stateId}.specifyPayinMethodDetails`, {
-		run: async () => {
+		run: buildRunHandler(async () => {
 			console.log('running authenticated.sendMoney.specifyPayinMethodDetails');
-			try {
-				const chosenPayinMethod = JSON.parse(await menu.session.get('chosenPayinMethod')) as PayinMethod;
+			const chosenPayinMethod = JSON.parse(await menu.session.get('chosenPayinMethod')) as PayinMethod;
 
-				console.log('chosenPayinMethod', chosenPayinMethod);
+			console.log('chosenPayinMethod', chosenPayinMethod);
 
-				const properties = (chosenPayinMethod.requiredPaymentDetails as {
-					properties: Record<string, { title: string; description: string; type: string }>;
-				})!.properties;
+			const properties = (chosenPayinMethod.requiredPaymentDetails as {
+				properties: Record<string, { title: string; description: string; type: string }>;
+			})!.properties;
 
-				const formKey = `payinMethodDetails.${chosenPayinMethod.kind}`;
-				await menu.session.set(formKey, {});
-				await menu.session.set('payinMethodDetailsFormKey', formKey);
-				await menu.session.set('payinMethodDetailsFormFirstValueKey', Object.keys(properties)[0]);
+			const formKey = `payinMethodDetails.${chosenPayinMethod.kind}`;
+			await menu.session.set(formKey, {});
+			await menu.session.set('payinMethodDetailsFormKey', formKey);
+			await menu.session.set('payinMethodDetailsFormFirstValueKey', Object.keys(properties)[0]);
 
-				const additionalFormFields = Object.entries(properties)
-					.slice(1)
-					.map(([key, detail], index) => ({
-						key,
-						label: `${index + 2}. ${detail.title} - ${detail.description}`,
-					}));
+			const additionalFormFields = Object.entries(properties)
+				.slice(1)
+				.map(([key, detail], index) => ({
+					key,
+					label: `${index + 2}. ${detail.title} - ${detail.description}`,
+				}));
 
-				await menu.session.set('payinMethodDetailsFormAdditionalFields', JSON.stringify(additionalFormFields));
+			await menu.session.set('payinMethodDetailsFormAdditionalFields', JSON.stringify(additionalFormFields));
 
-				return await buildContinueResponseWithErrors(
-					menu,
-					`You need to provide the following details for the payment method you will pay from:` +
-						'\n\n' +
-						Object.entries(properties)
-							.map(([, detail], index) => `${index + 1}. ${detail.title} - ${detail.description}`)
-							.join('\n') +
-						'\n\n' +
-						`To begin, enter the value of "${Object.values(properties)[0].title}".`,
-				);
-			} catch (error) {
-				console.error(error);
-				throw error;
-			}
-		},
+			return await buildContinueResponse(
+				menu,
+				`You need to provide the following details for the payment method you will pay from:` +
+					'\n\n' +
+					Object.entries(properties)
+						.map(([, detail], index) => `${index + 1}. ${detail.title} - ${detail.description}`)
+						.join('\n') +
+					'\n\n' +
+					`To begin, enter the value of "${Object.values(properties)[0].title}".`,
+				{ back: true, exit: true },
+			);
+		}),
 		next: {
+			'#': '__exit__',
+			'0': `${stateId}.chooseOffering`,
 			'*': async () => {
 				const input = menu.val;
 				const formKey = await menu.session.get('payinMethodDetailsFormKey');
@@ -382,22 +382,20 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 	});
 
 	menu.state(`${stateId}.choosePayoutMethod`, {
-		run: async () => {
-			console.log('running authenticated.sendMoney.choosePayoutMethod');
-			try {
-				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+		run: buildRunHandler(async () => {
+			const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 
-				menu.con(
-					'Choose one of the following payout methods to proceed.' +
-						'\n' +
-						offering.data.payout.methods.map((method, index) => `${index + 1}. ${makeHumanReadablePaymentMethod(method.kind)}`).join('\n'),
-				);
-			} catch (error) {
-				console.error(error);
-				throw error;
-			}
-		},
+			buildContinueResponse(
+				menu,
+				'Choose one of the following payout methods to proceed.' +
+					'\n' +
+					offering.data.payout.methods.map((method, index) => `${index + 1}. ${makeHumanReadablePaymentMethod(method.kind)}`).join('\n'),
+				{ back: true, exit: true },
+			);
+		}),
 		next: {
+			'#': '__exit__',
+			'0': `${stateId}.chooseOffering`,
 			'*': async () => {
 				try {
 					const index = parseInt(menu.val) - 1;
@@ -427,47 +425,43 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 	});
 
 	menu.state(`${stateId}.specifyPayoutMethodDetails`, {
-		run: async () => {
-			console.log('running authenticated.sendMoney.specifyPayoutMethodDetails');
-			try {
-				const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
+		run: buildRunHandler(async () => {
+			const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
 
-				const properties = (chosenPayoutMethod.requiredPaymentDetails as {
-					properties: Record<string, { title: string; description: string; type: string }>;
-				})!.properties;
+			const properties = (chosenPayoutMethod.requiredPaymentDetails as {
+				properties: Record<string, { title: string; description: string; type: string }>;
+			})!.properties;
 
-				const formKey = `payoutMethodDetails.${chosenPayoutMethod.kind}`;
-				await menu.session.set(formKey, {});
-				await menu.session.set('payoutMethodDetailsFormKey', formKey);
-				await menu.session.set('payoutMethodDetailsFormFirstValueKey', Object.keys(properties)[0]);
+			const formKey = `payoutMethodDetails.${chosenPayoutMethod.kind}`;
+			await menu.session.set(formKey, {});
+			await menu.session.set('payoutMethodDetailsFormKey', formKey);
+			await menu.session.set('payoutMethodDetailsFormFirstValueKey', Object.keys(properties)[0]);
 
-				const additionalFormFields = Object.entries(properties)
-					.slice(1)
-					.map(([key, detail], index) => ({
-						key,
-						label: `${index + 2}. ${detail.title} - ${detail.description}`,
-					}));
+			const additionalFormFields = Object.entries(properties)
+				.slice(1)
+				.map(([key, detail], index) => ({
+					key,
+					label: `${index + 2}. ${detail.title} - ${detail.description}`,
+				}));
 
-				await menu.session.set('payoutMethodDetailsFormAdditionalFields', JSON.stringify(additionalFormFields));
+			await menu.session.set('payoutMethodDetailsFormAdditionalFields', JSON.stringify(additionalFormFields));
 
-				return await buildContinueResponseWithErrors(
-					menu,
-					`You need to provide the following details for the payment method you will receive the funds to:` +
-						'\n\n' +
-						Object.entries(properties)
-							.map(([, detail], index) => `${index + 1}. ${detail.title} - ${detail.description}`)
-							.join('\n') +
-						'\n\n' +
-						`To begin, enter the ${Object.values(properties)[0].title} of the recipient.`,
-				);
-			} catch (error) {
-				console.error(error);
-				throw error;
-			}
-		},
+			return await buildContinueResponse(
+				menu,
+				`You need to provide the following details for the payment method you will receive the funds to:` +
+					'\n\n' +
+					Object.entries(properties)
+						.map(([, detail], index) => `${index + 1}. ${detail.title} - ${detail.description}`)
+						.join('\n') +
+					'\n\n' +
+					`To begin, enter the ${Object.values(properties)[0].title} of the recipient.`,
+				{ back: true, exit: true },
+			);
+		}),
 		next: {
+			'#': '__exit__',
+			'0': `${stateId}.chooseOffering`,
 			'*': async () => {
-				console.log('running authenticated.sendMoney.specifyPayoutMethodDetails next');
 				const input = menu.val;
 				const formKey = await menu.session.get('payoutMethodDetailsFormKey');
 				const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
@@ -550,33 +544,28 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 	});
 
 	menu.state(`${stateId}.specifyAmount`, {
-		run: async () => {
-			console.log('running authenticated.sendMoney.specifyAmount');
-			try {
-				const error = await menu.session.get('specifyAmount.error');
-				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
-				const formKey = await menu.session.get('payoutMethodDetailsFormKey');
-				const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
+		run: buildRunHandler(async () => {
+			const error = await menu.session.get('specifyAmount.error');
+			const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+			const formKey = await menu.session.get('payoutMethodDetailsFormKey');
+			const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
 
-				console.log('formValuesInSession', formValuesInSession);
-
-				return await buildContinueResponseWithErrors(
-					menu,
-					[
-						error && error + '\n',
-						`Enter the amount you want to send in ${offering.data.payin.currencyCode}.`,
-						offering.data.payin.min && `The minimum amount you can send is ${offering.data.payin.min} ${offering.data.payin.currencyCode}.`,
-						offering.data.payin.max && `The maximum amount you can send is ${offering.data.payin.max} ${offering.data.payin.currencyCode}.`,
-					]
-						.filter(Boolean)
-						.join('\n'),
-				);
-			} catch (error) {
-				console.error(error);
-				throw error;
-			}
-		},
+			return await buildContinueResponse(
+				menu,
+				[
+					error && error + '\n',
+					`Enter the amount you want to send in ${offering.data.payin.currencyCode}.`,
+					offering.data.payin.min && `The minimum amount you can send is ${offering.data.payin.min} ${offering.data.payin.currencyCode}.`,
+					offering.data.payin.max && `The maximum amount you can send is ${offering.data.payin.max} ${offering.data.payin.currencyCode}.`,
+				]
+					.filter(Boolean)
+					.join('\n'),
+				{ back: true, exit: true },
+			);
+		}),
 		next: {
+			'#': '__exit__',
+			'0': `${stateId}.chooseOffering`,
 			'*': async () => {
 				const payinAmount = menu.val;
 				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
@@ -630,67 +619,65 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 	});
 
 	menu.state(`${stateId}.validateCredentials`, {
-		run: async () => {
-			try {
-				console.log('running authenticated.sendMoney.validateCredentials');
-				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+		run: buildRunHandler(async () => {
+			const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 
-				if (!offering.data.requiredClaims) {
-					throw new Error('Offering does not require any claims');
-				}
-
-				const creatableCredentials = offering.data.requiredClaims.input_descriptors.filter((descriptor) =>
-					KnownVcs.some((knownCredential) => knownCredential.id === descriptor.id),
-				);
-
-				// Some of the required credentials are not creatable
-				if (
-					creatableCredentials.length < offering.data.requiredClaims.input_descriptors.length ||
-					// TODO: Add support for creating multiple credentials at once
-					offering.data.requiredClaims.input_descriptors.length - creatableCredentials.length > 1
-				) {
-					// TODO: Show soft error
-					return menu.end(
-						'You do not have the required claims to proceed and we cannot create them for you. Contact an issuer to get the required credentials.',
-					);
-				}
-
-				// All required credentials are creatable
-				// Build claim creation form for one credential
-				const creatableCredential = creatableCredentials[0];
-				const knownCredential = KnownVcs.find((knownCredential) => knownCredential.id === creatableCredential.id)!;
-
-				const claimCreationFormKey = 'claimCreationForm';
-				await menu.session.set(claimCreationFormKey, {});
-				await menu.session.set('creatableCredentialId', creatableCredential.id);
-				await menu.session.set('claimCreationFormFirstValueKey', Object.keys(knownCredential.schema.shape)[0]);
-
-				const additionalFormFields = Object.entries(knownCredential.schema.shape)
-					.slice(1)
-					.map(([key, detail], index) => {
-						return {
-							key,
-							label: `${index + 2}. ${detail.description}`,
-						};
-					});
-
-				await menu.session.set('claimCreationFormAdditionalFields', JSON.stringify(additionalFormFields));
-
-				menu.con(
-					`To proceed with this offering, you need to provide the following details for the verifiable credential required by this PFI` +
-						'\n\n' +
-						Object.entries(knownCredential.schema.shape)
-							.map(([key, detail], index) => `${index + 1}. ${detail.description}`)
-							.join('\n') +
-						'\n\n' +
-						`To begin, enter the value of "${Object.values(knownCredential.schema.shape)[0].description}".`,
-				);
-			} catch (error) {
-				console.error(error);
-				throw error;
+			if (!offering.data.requiredClaims) {
+				throw new Error('Offering does not require any claims');
 			}
-		},
+
+			const creatableCredentials = offering.data.requiredClaims.input_descriptors.filter((descriptor) =>
+				KnownVcs.some((knownCredential) => knownCredential.id === descriptor.id),
+			);
+
+			// Some of the required credentials are not creatable
+			if (
+				creatableCredentials.length < offering.data.requiredClaims.input_descriptors.length ||
+				// TODO: Add support for creating multiple credentials at once
+				offering.data.requiredClaims.input_descriptors.length - creatableCredentials.length > 1
+			) {
+				// TODO: Show soft error
+				return menu.end(
+					'You do not have the required claims to proceed and we cannot create them for you. Contact an issuer to get the required credentials.',
+				);
+			}
+
+			// All required credentials are creatable
+			// Build claim creation form for one credential
+			const creatableCredential = creatableCredentials[0];
+			const knownCredential = KnownVcs.find((knownCredential) => knownCredential.id === creatableCredential.id)!;
+
+			const claimCreationFormKey = 'claimCreationForm';
+			await menu.session.set(claimCreationFormKey, {});
+			await menu.session.set('creatableCredentialId', creatableCredential.id);
+			await menu.session.set('claimCreationFormFirstValueKey', Object.keys(knownCredential.schema.shape)[0]);
+
+			const additionalFormFields = Object.entries(knownCredential.schema.shape)
+				.slice(1)
+				.map(([key, detail], index) => {
+					return {
+						key,
+						label: `${index + 2}. ${detail.description}`,
+					};
+				});
+
+			await menu.session.set('claimCreationFormAdditionalFields', JSON.stringify(additionalFormFields));
+
+			buildContinueResponse(
+				menu,
+				`To proceed with this offering, you need to provide the following details for the verifiable credential required by this PFI` +
+					'\n\n' +
+					Object.entries(knownCredential.schema.shape)
+						.map(([key, detail], index) => `${index + 1}. ${detail.description}`)
+						.join('\n') +
+					'\n\n' +
+					`To begin, enter the value of "${Object.values(knownCredential.schema.shape)[0].description}".`,
+				{ back: true, exit: true },
+			);
+		}),
 		next: {
+			'#': '__exit__',
+			'0': `${stateId}.chooseOffering`,
 			'*': async () => {
 				const input = menu.val;
 				const formKey = await menu.session.get('claimCreationFormKey');
@@ -728,119 +715,105 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 	});
 
 	menu.state(`${stateId}.createCredential`, {
-		run: async () => {
-			console.log('running authenticated.sendMoney.createCredential');
-			try {
-				const formKey = await menu.session.get('claimCreationFormKey');
-				const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
-				const creatableCredentialId = await menu.session.get('creatableCredentialId');
+		run: buildRunHandler(async () => {
+			const formKey = await menu.session.get('claimCreationFormKey');
+			const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
+			const creatableCredentialId = await menu.session.get('creatableCredentialId');
 
-				const serializedUser = await menu.session.get('user');
-				if (!serializedUser) {
-					return menu.end('You are not logged in. Please login to continue.');
-				}
-				const user = JSON.parse(serializedUser) as User;
-				const userDID = JSON.parse(user.did) as PortableDid;
-
-				console.log('formValuesInSession for credential creation', formValuesInSession);
-
-				const credential = await createCredential(userDID.uri, creatableCredentialId, formValuesInSession);
-
-				await saveCustomerCredential(env, user.id, credential);
-
-				menu.go(`${stateId}.requestQuote`);
-			} catch (error) {
-				console.error(error);
-				throw error;
+			const serializedUser = await menu.session.get('user');
+			if (!serializedUser) {
+				return menu.end('You are not logged in. Please login to continue.');
 			}
-		},
+			const user = JSON.parse(serializedUser) as User;
+			const userDID = JSON.parse(user.did) as PortableDid;
+
+			const credential = await createCredential(userDID.uri, creatableCredentialId, formValuesInSession);
+
+			await saveCustomerCredential(env, user.id, credential);
+
+			menu.go(`${stateId}.requestQuote`);
+		}),
 	});
 
 	menu.state(`${stateId}.requestQuote`, {
-		run: async () => {
-			console.log('running authenticated.sendMoney.requestQuote');
-			try {
-				const amount = await menu.session.get('payinAmount');
+		run: buildRunHandler(async () => {
+			const amount = await menu.session.get('payinAmount');
 
-				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
-				const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
-				const chosenPayinMethod = JSON.parse(await menu.session.get('chosenPayinMethod')) as PayinMethod;
+			const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+			const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
+			const chosenPayinMethod = JSON.parse(await menu.session.get('chosenPayinMethod')) as PayinMethod;
 
-				const payinMethodDetailsStorageKey = await menu.session.get('payinMethodDetailsFormKey');
-				const payoutMethodDetailsStorageKey = await menu.session.get('payoutMethodDetailsFormKey');
-				const payinMethodDetails = JSON.parse(await menu.session.get(payinMethodDetailsStorageKey)) as Record<string, string> | undefined;
-				const payoutMethodDetails = JSON.parse(await menu.session.get(payoutMethodDetailsStorageKey)) as Record<string, string> | undefined;
+			const payinMethodDetailsStorageKey = await menu.session.get('payinMethodDetailsFormKey');
+			const payoutMethodDetailsStorageKey = await menu.session.get('payoutMethodDetailsFormKey');
+			const payinMethodDetails = JSON.parse(await menu.session.get(payinMethodDetailsStorageKey)) as Record<string, string> | undefined;
+			const payoutMethodDetails = JSON.parse(await menu.session.get(payoutMethodDetailsStorageKey)) as Record<string, string> | undefined;
 
-				const serializedUser = await menu.session.get('user');
-				if (!serializedUser) {
-					return menu.end('You are not logged in. Please login to continue.');
-				}
-
-				const user = JSON.parse(serializedUser) as User;
-				const userDID = JSON.parse(user.did) as PortableDid;
-				const userCredentials = await getCustomerCredentials(env, user.id);
-
-				const selectedCredentials = offering.data.requiredClaims
-					? workerCompatiblePexSelect({
-							presentationDefinition: offering.data.requiredClaims,
-							vcJwts: userCredentials,
-						})
-					: [];
-
-				// Request quote
-				const rfq = Rfq.create({
-					metadata: {
-						from: userDID.uri,
-						to: offering.metadata.from,
-						protocol: '1.0',
-					},
-					data: {
-						offeringId: offering.metadata.id,
-						payin: {
-							amount: amount.toString(),
-							kind: chosenPayinMethod.kind,
-							paymentDetails: payinMethodDetails ?? {},
-						},
-						payout: {
-							kind: chosenPayoutMethod.kind,
-							paymentDetails: payoutMethodDetails ?? {},
-						},
-						claims: selectedCredentials,
-					},
-				});
-
-				// Sign RFQ
-				const userBearerDid = await resolveDID(env, userDID);
-				await rfq.sign(userBearerDid);
-
-				// Submit RFQ
-				await TbdexHttpClient.createExchange(rfq);
-
-				const db = drizzle(env.DB);
-				await db.insert(transactions).values({
-					amount: amount.toString(),
-					status: 'pending',
-					user_id: user.id,
-					pfiDid: offering.metadata.from,
-					exchangeId: rfq.metadata.exchangeId,
-					offeringId: rfq.data.offeringId,
-					payinKind: rfq.data.payin.kind,
-					payoutKind: rfq.data.payout.kind,
-					createdAt: rfq.metadata.createdAt,
-				});
-
-				menu.end(
-					"You're almost there!" +
-						'\n\n' +
-						`You have requested a quote for the conversion of ${amount} ${offering.data.payin.currencyCode} to ${offering.data.payout.currencyCode}` +
-						'\n\n' +
-						`The PFI is reviewing your request. You will receive a notification via SMS once the PFI responds with a quote.`,
-				);
-			} catch (error) {
-				console.error(error);
-				throw error;
+			const serializedUser = await menu.session.get('user');
+			if (!serializedUser) {
+				return menu.end('You are not logged in. Please login to continue.');
 			}
-		},
+
+			const user = JSON.parse(serializedUser) as User;
+			const userDID = JSON.parse(user.did) as PortableDid;
+			const userCredentials = await getCustomerCredentials(env, user.id);
+
+			const selectedCredentials = offering.data.requiredClaims
+				? workerCompatiblePexSelect({
+						presentationDefinition: offering.data.requiredClaims,
+						vcJwts: userCredentials,
+					})
+				: [];
+
+			// Request quote
+			const rfq = Rfq.create({
+				metadata: {
+					from: userDID.uri,
+					to: offering.metadata.from,
+					protocol: '1.0',
+				},
+				data: {
+					offeringId: offering.metadata.id,
+					payin: {
+						amount: amount.toString(),
+						kind: chosenPayinMethod.kind,
+						paymentDetails: payinMethodDetails ?? {},
+					},
+					payout: {
+						kind: chosenPayoutMethod.kind,
+						paymentDetails: payoutMethodDetails ?? {},
+					},
+					claims: selectedCredentials,
+				},
+			});
+
+			// Sign RFQ
+			const userBearerDid = await resolveDID(env, userDID);
+			await rfq.sign(userBearerDid);
+
+			// Submit RFQ
+			await TbdexHttpClient.createExchange(rfq);
+
+			const db = drizzle(env.DB);
+			await db.insert(transactions).values({
+				amount: amount.toString(),
+				status: 'pending',
+				user_id: user.id,
+				pfiDid: offering.metadata.from,
+				exchangeId: rfq.metadata.exchangeId,
+				offeringId: rfq.data.offeringId,
+				payinKind: rfq.data.payin.kind,
+				payoutKind: rfq.data.payout.kind,
+				createdAt: rfq.metadata.createdAt,
+			});
+
+			menu.end(
+				"You're almost there!" +
+					'\n\n' +
+					`You have requested a quote for the conversion of ${amount} ${offering.data.payin.currencyCode} to ${offering.data.payout.currencyCode}` +
+					'\n\n' +
+					`The PFI is reviewing your request. You will receive a notification via SMS once the PFI responds with a quote.`,
+			);
+		}),
 	});
 
 	return stateId;
