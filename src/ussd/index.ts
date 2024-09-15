@@ -1,4 +1,5 @@
-import UssdMenu from 'ussd-builder';
+import { buildContinueResponseWithErrors, sessionErrors } from './builders';
+import UssdMenu from './lib/ussd-menu.js';
 import modules, { UssdModule } from './modules';
 
 export interface UssdRequest {
@@ -20,6 +21,8 @@ export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: Exe
 	const menu = new UssdMenu({
 		provider: 'africasTalking',
 	});
+
+	console.log('handling ussd request', request);
 
 	// Configure session storage using KV
 	menu.sessionConfig({
@@ -50,6 +53,8 @@ export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: Exe
 		},
 		end: async (sessionId) => {
 			try {
+				console.log('ending session', sessionId);
+
 				// Clean up session state
 				let keys: string[] = [];
 
@@ -83,14 +88,31 @@ export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: Exe
 		},
 	});
 
+	menu.onResult = async (result) => {
+		console.log('onResult', result);
+
+		await sessionErrors.clear(menu);
+	};
+
+	const originalCon = menu.con;
+	menu.con = function (this: typeof menu, message: string) {
+		return originalCon.call(this, message + '\n\n#. Exit');
+	}.bind(menu);
+
+	const originalState = menu.state;
+	menu.state = function (this: typeof menu, id: string, options: UssdMenu.UssdStateOptions) {
+		return originalState.call(this, id, { defaultNext: '__fallback__', ...options });
+	}.bind(menu);
+
 	// Register modules
 	modules.forEach((module) => {
 		module.handler(menu, request, env, ctx);
 	});
 
 	menu.startState({
-		run: () => {
-			menu.con(
+		run: async () => {
+			return await buildContinueResponseWithErrors(
+				menu,
 				'Welcome to tbDEX go.' +
 					'\n\n' +
 					'Send money across borders instantly and securely. To get started, choose an option:' +
@@ -109,9 +131,25 @@ export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: Exe
 		),
 	});
 
+	menu.state('__fallback__', {
+		run: async () => {
+			const input = menu.val;
+
+			console.log('fallback state', menu.state);
+			if (input === '#') {
+				return menu.go('__exit__');
+			}
+
+			await sessionErrors.set(menu, 'Invalid input. Please choose a valid option from the menu.');
+
+			// @ts-expect-error - menu.states is an object not an array
+			menu.runState(menu.states[UssdMenu.START_STATE]);
+		},
+	});
+
 	menu.state('__exit__', {
 		run: () => {
-			menu.end('Thank you for using the TBDex USSD service. Goodbye!');
+			menu.end('Thank you for using tbDEX Go. Goodbye!');
 			return;
 		},
 	});
