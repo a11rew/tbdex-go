@@ -9,7 +9,7 @@ export function getCredentialCreationRequirements(id: string) {
 	if (!vcs) {
 		// TODO: Implement KCC flow
 		throw new Error(
-			'We do not have support for creating this verifiable credential from tbDex Go. Contact the issuer for details on obtaining this VC.',
+			'We do not have support for creating this verifiable credential from tbDEX Go. Contact the issuer for details on obtaining this VC.',
 		);
 	}
 
@@ -21,7 +21,7 @@ export async function createCredential(userDidURI: string, id: string, data: Rec
 
 	if (!vcs) {
 		throw new Error(
-			'We do not have support for creating this verifiable credential from tbDex Go. Contact the issuer for details on obtaining this VC.',
+			'We do not have support for creating this verifiable credential from tbDEX Go. Contact the issuer for details on obtaining this VC.',
 		);
 	}
 
