@@ -14,9 +14,13 @@ With access to any GSM/LTE network, even when roaming, users can send and receiv
 
 ## Try it out
 
-You can try out the tbDEX Go USSD service visiting this [USSD Simulator](https://developer.africastalking.com/ussd/sandbox).
+You can try out the tbDEX Go USSD service visiting this [USSD Simulator](https://developers.africastalking.com/simulator).
 
-You then dial \*384\*05040# from the "Phone" app to access the service.
+Provide any valid phone number (does not have to be your real number for this demo) and click "Connect". You will now be able to simulate making USSD requests from that number.
+
+Dial `*384*05040#` from the "Phone" app to then access the tbDEX Go USSD service.
+
+![Demo Screenshot](./assets/demo-screenshot.png)
 
 ## Technical Overview
 
