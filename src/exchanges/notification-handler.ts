@@ -1,6 +1,6 @@
 import { fetchLatestQuote } from '@/db/helpers';
 import { DbQuote, DbTransaction, DbUser, transactions, users } from '@/db/schema';
-import { resolveDID } from '@/did';
+import { getBearerDID } from '@/did';
 import { publishSMS } from '@/sms';
 import { Close, Order, TbdexHttpClient } from '@tbdex/http-client';
 import { BearerDid, PortableDid } from '@web5/dids';
@@ -20,13 +20,6 @@ export async function handleSMSNotification(request: Request, env: Env): Promise
 	const body = await request.formData();
 	const urlDecodedBody = Object.fromEntries(Array.from(body.entries()).map(([key, value]) => [key, decodeURIComponent(value.toString())]));
 	const jsonBody = urlDecodedBody as unknown as SMSNotification;
-
-	console.log('json body', jsonBody);
-
-	if (jsonBody.to !== env.AT_SHORTCODE) {
-		console.log('SMS Notification received for wrong shortcode', jsonBody);
-		return new Response('SMS Notification received', { status: 200 });
-	}
 
 	const db = drizzle(env.DB);
 
@@ -70,7 +63,7 @@ async function handleQuoteResponse(db: DrizzleD1Database, env: Env, user: DbUser
 	}
 
 	const userPortableDID = JSON.parse(user.did) as PortableDid;
-	const userBearerDID = await resolveDID(env, userPortableDID);
+	const userBearerDID = await getBearerDID(env, userPortableDID);
 
 	console.log('SMS Notification received', message);
 

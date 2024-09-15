@@ -1,5 +1,5 @@
 import { DbTransaction, DbUser, transactions, users } from '@/db/schema';
-import { resolveDID } from '@/did';
+import { getBearerDID } from '@/did';
 import { Close, Order, OrderStatus, Quote, Rfq, TbdexHttpClient } from '@tbdex/http-client';
 import { BearerDid } from '@web5/dids';
 import { and, eq, ne } from 'drizzle-orm';
@@ -52,7 +52,7 @@ async function processUserTransactions(env: Env, db: DrizzleD1Database, userIds:
 			const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
 			if (!user) return;
 
-			const userBearerDID = await resolveDID(env, JSON.parse(user.did));
+			const userBearerDID = await getBearerDID(env, JSON.parse(user.did));
 			const userTransactions = transactions.filter((t) => t.user_id === userId);
 			const transactionsByPfiDid = groupTransactionsByPfiDid(userTransactions);
 

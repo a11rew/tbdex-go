@@ -1,6 +1,6 @@
 import { currencyDescriptions, makeHumanReadablePaymentMethod } from '@/constants/descriptions';
 import { transactions, DbUser as User } from '@/db/schema';
-import { resolveDID } from '@/did';
+import { getBearerDID } from '@/did';
 import { UssdRequest } from '@/ussd';
 import { buildContinueResponse, buildFormMenu, buildRunHandler, sessionErrors } from '@/ussd/builders';
 import { createCredential, getCustomerCredentials, saveCustomerCredential } from '@/vc';
@@ -787,7 +787,7 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 			});
 
 			// Sign RFQ
-			const userBearerDid = await resolveDID(env, userDID);
+			const userBearerDid = await getBearerDID(env, userDID);
 			await rfq.sign(userBearerDid);
 
 			// Submit RFQ
