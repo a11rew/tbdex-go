@@ -10,6 +10,6 @@ const handler: UssdModule['handler'] = (menu) => {
 
 export default {
 	id: 'profile',
-	description: 'Profile',
+	description: 'Manage Profile',
 	handler,
 } satisfies UssdModule;

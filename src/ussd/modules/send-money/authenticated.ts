@@ -11,12 +11,12 @@ import { PortableDid } from '@web5/dids';
 import { drizzle } from 'drizzle-orm/d1';
 import UssdMenu from 'ussd-builder';
 
-const stateId = 'authenticated.sendMoney';
+const stateId = 'sendMoney';
 
 export function registerAuthenticatedSendMoney(menu: UssdMenu, request: UssdRequest, env: Env) {
 	menu.state(stateId, {
 		run: async () => {
-			console.log('running authenticated.sendMoney');
+			console.log('running sendMoney');
 			try {
 				// Fetch offerings
 				const { allOfferings } = await fetchPFIOfferings(env);
