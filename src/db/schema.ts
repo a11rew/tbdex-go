@@ -1,6 +1,6 @@
 import { createId } from '@paralleldrive/cuid2';
 import { sql } from 'drizzle-orm';
-import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { integer, sqliteTable, sqliteView, text } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
 	id: text('id')
@@ -98,3 +98,26 @@ export const notifications = sqliteTable('notifications', {
 });
 
 export type DbNotification = typeof notifications.$inferSelect;
+
+export const go_credit_transactions = sqliteTable('go_credit_transactions', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => `go_credit_transaction_${createId()}`),
+	user_id: text('user_id')
+		.references(() => users.id)
+		.notNull(),
+	amount: integer('amount').notNull(),
+	reference: text('reference'),
+	created_at: text('created_at')
+		.notNull()
+		.default(sql`(current_timestamp)`),
+});
+
+export type DbGoCreditTransaction = typeof go_credit_transactions.$inferSelect;
+
+export const go_credit_balance_view = sqliteView('go_credit_balance_view', {
+	user_id: text('user_id')
+		.references(() => users.id)
+		.notNull(),
+	balance: integer('balance').notNull(),
+}).existing();

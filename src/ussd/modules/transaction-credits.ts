@@ -1,3 +1,6 @@
+import { fetchGoCreditBalance } from '@/db/helpers';
+import { getUserByPhoneNumber } from '@/user';
+import { drizzle } from 'drizzle-orm/d1';
 import type { UssdModule } from '.';
 import { buildContinueResponse, buildRunHandler } from '../builders';
 
@@ -6,9 +9,13 @@ const stateId = 'transaction-credits';
 const handler: UssdModule['handler'] = (menu, request, env, ctx) => {
 	menu.state(stateId, {
 		run: buildRunHandler(async () => {
+			const db = drizzle(env.DB);
+			const user = await getUserByPhoneNumber(env, request.phoneNumber);
+			const goCreditBalance = await fetchGoCreditBalance(db, user.id);
+
 			buildContinueResponse(
 				menu,
-				'You have 10 free transaction credits left this month.\n\nCredits allow you to make transactions on tbDEX Go.' +
+				`You have ${goCreditBalance.balance} Go transaction credits.\n\nCredits allow you to make transactions on tbDEX Go.` +
 					'\n\n' +
 					'1. Buy Transaction Credits',
 				{
