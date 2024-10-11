@@ -31,6 +31,7 @@ export default {
 			jsonBody,
 			env,
 			ctx,
+			urlPath === '/nalo' ? 'nalo' : 'africasTalking',
 		);
 
 		return new Response(response);

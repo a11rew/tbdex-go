@@ -1,5 +1,5 @@
 import { getUserByPhoneNumber } from '@/user';
-import UssdMenu from 'ussd-builder';
+import UssdMenu, { UssdMenuProvider } from 'ussd-builder';
 import { initializeUSSDMenu } from './menu';
 import { registerModules } from './modules';
 
@@ -10,8 +10,8 @@ export interface UssdRequest {
 	serviceCode: string;
 }
 
-export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: ExecutionContext) {
-	const menu = initializeUSSDMenu(env);
+export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: ExecutionContext, provider: UssdMenuProvider) {
+	const menu = initializeUSSDMenu(env, provider);
 
 	// Register modules
 	await registerModules(menu, request, env, ctx);

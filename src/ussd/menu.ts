@@ -1,8 +1,8 @@
-import UssdMenu from 'ussd-builder';
+import UssdMenu, { UssdMenuProvider } from 'ussd-builder';
 
-export function initializeUSSDMenu(env: Env) {
+export function initializeUSSDMenu(env: Env, provider: UssdMenuProvider) {
 	const menu = new UssdMenu({
-		provider: 'africasTalking',
+		provider,
 	});
 
 	// Configure session storage using KV
