@@ -132,3 +132,23 @@ export async function publishStatusUpdateNotificationSMS(env: Env, user: DbUser,
 		message,
 	});
 }
+
+export async function publishRateTransactionSMS(env: Env, user: DbUser, transaction: DbTransaction) {
+	const sms = initSMSClient(env);
+
+	const message =
+		`Please rate your transaction with ID ${transaction.id}.` +
+		`\n\n` +
+		`Rating your experience with this PFI helps us improve our service.` +
+		`\n\n` +
+		`Reply with a number between 1 and 5 to rate the transaction.` +
+		`\n` +
+		`1 being a terrible experience and 5 being an excellent experience.`;
+
+	const to = user.phoneNumber;
+
+	return await sms.send({
+		to,
+		message,
+	});
+}

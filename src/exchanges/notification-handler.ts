@@ -1,11 +1,11 @@
 import { fetchLatestQuote } from '@/db/helpers';
-import { DbQuote, DbTransaction, DbUser, transactions, users } from '@/db/schema';
+import { DbQuote, DbTransaction, DbUser, ratings, transactions, users } from '@/db/schema';
 import { resolveDID } from '@/did';
 import { publishSMS } from '@/sms';
 import { Close, Order, TbdexHttpClient } from '@tbdex/http-client';
 import { BearerDid, PortableDid } from '@web5/dids';
 import { desc, eq } from 'drizzle-orm';
-import { drizzle, DrizzleD1Database } from 'drizzle-orm/d1';
+import { drizzle } from 'drizzle-orm/d1';
 import { processClose, processOrder } from './helpers';
 
 interface SMSNotification {
@@ -50,13 +50,17 @@ export async function handleSMSNotification(request: Request, env: Env): Promise
 	}
 
 	if (transaction.status === 'quote') {
-		await handleQuoteResponse(db, env, user, transaction, jsonBody.text);
+		await handleQuoteResponse(env, user, transaction, jsonBody.text);
+	} else if (transaction.status === 'complete') {
+		await handleRateTransactionResponse(env, user, transaction, jsonBody.text);
 	}
 
 	return new Response('SMS Notification received', { status: 200 });
 }
 
-async function handleQuoteResponse(db: DrizzleD1Database, env: Env, user: DbUser, transaction: DbTransaction, message: string) {
+async function handleQuoteResponse(env: Env, user: DbUser, transaction: DbTransaction, message: string) {
+	const db = drizzle(env.DB);
+
 	const quote = await fetchLatestQuote(db, transaction.id);
 	if (!quote) {
 		console.log('SMS Notification received for quote that does not exist', transaction.id);
@@ -151,4 +155,30 @@ async function cancelTransaction(
 		console.error('Error submitting close', error);
 		await publishSMS(env, user.phoneNumber, `There was an error cancelling your transaction ${transaction.id}. Please try again.`);
 	}
+}
+
+async function handleRateTransactionResponse(env: Env, user: DbUser, transaction: DbTransaction, message: string) {
+	const db = drizzle(env.DB);
+
+	const rating = parseInt(message);
+
+	if (isNaN(rating) || rating < 1 || rating > 5) {
+		await publishSMS(env, user.phoneNumber, `Invalid rating received. Please reply with a number between 1 and 5.`);
+		return;
+	}
+
+	// Check if rating already exists
+	const [existingRating] = await db.select().from(ratings).where(eq(ratings.transaction_id, transaction.id));
+	if (existingRating) {
+		console.warn('Rating already exists for transaction', transaction.id);
+		// Silently return
+		return;
+	}
+
+	await db.insert(ratings).values({
+		transaction_id: transaction.id,
+		rating,
+	});
+
+	await publishSMS(env, user.phoneNumber, `Thank you for rating your transaction and helping improve tbDEX Go.`);
 }

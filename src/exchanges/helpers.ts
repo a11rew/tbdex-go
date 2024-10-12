@@ -14,6 +14,7 @@ import {
 	publishCloseNotificationSMS,
 	publishOrderNotificationSMS,
 	publishQuoteNotificationSMS,
+	publishRateTransactionSMS,
 	publishStatusUpdateNotificationSMS,
 } from '@/sms';
 import { Close, Order, OrderStatus, Quote } from '@tbdex/http-client';
@@ -85,6 +86,11 @@ export async function processClose(env: Env, user: DbUser, transaction: DbTransa
 	// This is to prevent duplicate notifications
 	if (transaction.status !== updatedTransaction.status) {
 		await publishCloseNotificationSMS(env, user, !isCancelled, updatedTransaction);
+
+		// Ask them to rate the transaction
+		if (updatedTransaction.status === 'complete') {
+			await publishRateTransactionSMS(env, user, updatedTransaction);
+		}
 	}
 }
 

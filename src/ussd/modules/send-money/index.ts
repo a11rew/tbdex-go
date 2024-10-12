@@ -820,7 +820,7 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 					`You have requested a quote for the conversion of ${amount} ${offering.data.payin.currencyCode} to ${offering.data.payout.currencyCode}` +
 					'\n\n' +
 					`The PFI is reviewing your request. You will receive a notification via SMS once the PFI responds with a quote.` +
-					'\n' +
+					'\n\n' +
 					`This transaction will cost you 1 credit if you accept the quote.` +
 					'\n\n' +
 					`Thank you for using tbDEX Go!`,

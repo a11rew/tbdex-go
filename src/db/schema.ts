@@ -121,3 +121,17 @@ export const go_credit_balance_view = sqliteView('go_credit_balance_view', {
 		.notNull(),
 	balance: integer('balance').notNull(),
 }).existing();
+
+export const ratings = sqliteTable('ratings', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => `rating_${createId()}`),
+	transaction_id: text('transaction_id')
+		.references(() => transactions.id)
+		.notNull(),
+	rating: integer('rating').notNull(),
+	created_at: text('created_at')
+		.notNull()
+		.default(sql`(current_timestamp)`),
+});
+export type DbRating = typeof ratings.$inferSelect;
