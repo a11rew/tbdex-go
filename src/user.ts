@@ -17,10 +17,10 @@ export async function registerUser(env: Env, phoneNumber: string) {
 
 	const user = await getUserByPhoneNumber(env, phoneNumber);
 
-	// Insert initial +50 credit transaction
+	// Insert initial +5 credit transaction
 	await db.insert(go_credit_transactions).values({
 		user_id: user.id,
-		amount: 50,
+		amount: 5,
 		reference: 'Initial balance',
 	});
 }

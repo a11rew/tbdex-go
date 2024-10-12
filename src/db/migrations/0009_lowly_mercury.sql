@@ -8,12 +8,12 @@ CREATE TABLE `go_credit_transactions` (
 );
 
 --> statement-breakpoint
--- Insert +50 credit transaction for existing users without transactions
+-- Insert +5 credit transaction for existing users without transactions
 INSERT INTO go_credit_transactions (id, user_id, amount, reference)
 SELECT 
     hex(randomblob(16)), -- Generate a random UUID
     users.id,
-    50,
+    5,
     'Initial balance'
 FROM users
 WHERE NOT EXISTS (
