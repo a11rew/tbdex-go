@@ -1,4 +1,6 @@
 import {
+	addGoCreditTransaction,
+	fetchGoCreditBalance,
 	fetchLatestQuote,
 	fetchNotification,
 	fetchQuote,
@@ -26,8 +28,13 @@ export async function processQuote(env: Env, user: DbUser, transaction: DbTransa
 	const quote = quotes[0];
 	await insertQuote(db, user, transaction, quote);
 	await updateTransactionStatus(db, transaction.id, 'quote');
-	const [updatedTransaction, writtenQuote] = await Promise.all([fetchTransaction(db, transaction.id), fetchQuote(db, quote.id)]);
-	await publishQuoteNotificationSMS(env, user, writtenQuote, updatedTransaction);
+	const [updatedTransaction, writtenQuote, creditBalance] = await Promise.all([
+		fetchTransaction(db, transaction.id),
+		fetchQuote(db, quote.id),
+		fetchGoCreditBalance(db, user.id),
+	]);
+
+	await publishQuoteNotificationSMS(env, user, writtenQuote, updatedTransaction, creditBalance.balance);
 
 	if (new Date(quote.data.expiresAt) < new Date()) {
 		await updateTransactionStatus(db, transaction.id, 'cancelled');
@@ -39,13 +46,26 @@ export async function processOrder(env: Env, user: DbUser, transaction: DbTransa
 
 	const db = drizzle(env.DB);
 
+	const creditBalance = await fetchGoCreditBalance(db, user.id);
+
+	if (creditBalance.balance < 1) {
+		await updateTransactionStatus(db, transaction.id, 'cancelled');
+		await publishCloseNotificationSMS(env, user, false, transaction, 'Insufficient Go Credit balance');
+		return;
+	}
+
 	await updateTransactionStatus(db, transaction.id, 'order');
+
+	// Decrement the user's Go Credit balance
+	await addGoCreditTransaction(db, user.id, -1, `Order placed: ${transaction.id}`);
+
 	const [updatedTransaction, latestQuote] = await Promise.all([fetchTransaction(db, transaction.id), fetchLatestQuote(db, transaction.id)]);
 
 	// We only publish the order notification if the transaction status has actually changed
 	// This is to prevent duplicate notifications
 	if (transaction.status !== updatedTransaction.status) {
-		await publishOrderNotificationSMS(env, user, latestQuote, updatedTransaction);
+		const newGoCreditBalance = await fetchGoCreditBalance(db, user.id);
+		await publishOrderNotificationSMS(env, user, latestQuote, updatedTransaction, newGoCreditBalance.balance);
 	}
 }
 

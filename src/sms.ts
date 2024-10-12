@@ -43,7 +43,13 @@ export async function publishSMS(env: Env, to: DbUser['phoneNumber'], message: s
 	});
 }
 
-export async function publishQuoteNotificationSMS(env: Env, user: DbUser, quote: DbQuote, transaction: DbTransaction) {
+export async function publishQuoteNotificationSMS(
+	env: Env,
+	user: DbUser,
+	quote: DbQuote,
+	transaction: DbTransaction,
+	creditBalance: number,
+) {
 	const sms = initSMSClient(env);
 
 	const fee = quote.fee ? Number(quote.fee) : 0;
@@ -58,9 +64,11 @@ export async function publishQuoteNotificationSMS(env: Env, user: DbUser, quote:
 		`\n` +
 		`Fee: ${fee} ${quote.payinCurrency}` +
 		`\n` +
-		`Expires at: ${quote.expiresAt}` +
+		`Expires at: ${quote.expiresAt}` + // TODO: Format date, human readable and relative to current time
 		`\n\n` +
-		`Reply with "1" to accept this quote and place an order. Reply with "0" to reject the quote.`;
+		`Reply with "1" to accept this quote and place an order. Reply with "0" to reject the quote.` +
+		`\n\n` +
+		`This transaction will cost you 1 credit. Your remaining balance is ${creditBalance} credits.`;
 	const to = user.phoneNumber;
 
 	return await sms.send({
@@ -69,7 +77,13 @@ export async function publishQuoteNotificationSMS(env: Env, user: DbUser, quote:
 	});
 }
 
-export async function publishOrderNotificationSMS(env: Env, user: DbUser, quote: DbQuote, transaction: DbTransaction) {
+export async function publishOrderNotificationSMS(
+	env: Env,
+	user: DbUser,
+	quote: DbQuote,
+	transaction: DbTransaction,
+	creditBalance: number,
+) {
 	const sms = initSMSClient(env);
 
 	const fee = quote.fee ? Number(quote.fee) : 0;
@@ -84,6 +98,8 @@ export async function publishOrderNotificationSMS(env: Env, user: DbUser, quote:
 		`\n` +
 		`Fee: ${fee} ${quote.payinCurrency}` +
 		`\n\n` +
+		`This transaction cost you 1 credit. Your remaining Go Credit balance is ${creditBalance} credits.` +
+		`\n\n` +
 		`You will receive a notification when the transaction is completed.`;
 	const to = user.phoneNumber;
 
@@ -93,10 +109,10 @@ export async function publishOrderNotificationSMS(env: Env, user: DbUser, quote:
 	});
 }
 
-export async function publishCloseNotificationSMS(env: Env, user: DbUser, success: boolean, transaction: DbTransaction) {
+export async function publishCloseNotificationSMS(env: Env, user: DbUser, success: boolean, transaction: DbTransaction, reason?: string) {
 	const sms = initSMSClient(env);
 
-	const message = `Your transaction with ID ${transaction.id} has been ${success ? 'completed' : 'cancelled'} successfully.`;
+	const message = `Your transaction with ID ${transaction.id} has been ${success ? 'completed' : 'cancelled'}${reason ? `: ${reason}` : ''}.`;
 	const to = user.phoneNumber;
 
 	return await sms.send({

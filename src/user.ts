@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
-import { go_credit_transactions, users } from './db/schema';
+import { addGoCreditTransaction } from './db/helpers';
+import { users } from './db/schema';
 import { resolveDID } from './did';
 
 export async function registerUser(env: Env, phoneNumber: string) {
@@ -18,11 +19,7 @@ export async function registerUser(env: Env, phoneNumber: string) {
 	const user = await getUserByPhoneNumber(env, phoneNumber);
 
 	// Insert initial +5 credit transaction
-	await db.insert(go_credit_transactions).values({
-		user_id: user.id,
-		amount: 5,
-		reference: 'Initial balance',
-	});
+	await addGoCreditTransaction(db, user.id, 5, 'Initial balance');
 }
 
 export async function getUserByPhoneNumber(env: Env, phoneNumber: string) {
