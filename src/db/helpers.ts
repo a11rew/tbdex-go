@@ -1,7 +1,16 @@
 import { Quote } from '@tbdex/http-client';
 import { desc, eq } from 'drizzle-orm';
 import { DrizzleD1Database } from 'drizzle-orm/d1';
-import { DbNotification, DbTransaction, DbUser, notifications, quotes, transactions } from './schema';
+import {
+	DbNotification,
+	DbTransaction,
+	DbUser,
+	go_credit_balance_view,
+	go_credit_transactions,
+	notifications,
+	quotes,
+	transactions,
+} from './schema';
 
 export async function insertQuote(db: DrizzleD1Database, user: DbUser, transaction: DbTransaction, quote: Quote) {
 	await db.insert(quotes).values({
@@ -44,4 +53,13 @@ export async function insertNotification(db: DrizzleD1Database, notification: Db
 export async function fetchNotification(db: DrizzleD1Database, notificationId: string) {
 	const [notification] = await db.select().from(notifications).where(eq(notifications.id, notificationId)).limit(1);
 	return notification;
+}
+
+export async function fetchGoCreditBalance(db: DrizzleD1Database, userId: string) {
+	const [balance] = await db.select().from(go_credit_balance_view).where(eq(go_credit_balance_view.user_id, userId)).limit(1);
+	return balance;
+}
+
+export async function addGoCreditTransaction(db: DrizzleD1Database, userId: string, amount: number, reference: string) {
+	await db.insert(go_credit_transactions).values({ user_id: userId, amount, reference });
 }

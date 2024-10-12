@@ -1,4 +1,5 @@
 import { currencyDescriptions, makeHumanReadablePaymentMethod } from '@/constants/descriptions';
+import { fetchGoCreditBalance } from '@/db/helpers';
 import { transactions, DbUser as User } from '@/db/schema';
 import { resolveDID } from '@/did';
 import { UssdRequest } from '@/ussd';
@@ -738,6 +739,7 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 	menu.state(`${stateId}.requestQuote`, {
 		run: buildRunHandler(async () => {
 			const amount = await menu.session.get('payinAmount');
+			const db = drizzle(env.DB);
 
 			const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 			const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
@@ -756,6 +758,13 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 			const user = JSON.parse(serializedUser) as User;
 			const userDID = JSON.parse(user.did) as PortableDid;
 			const userCredentials = await getCustomerCredentials(env, user.id);
+			const creditBalance = await fetchGoCreditBalance(db, user.id);
+
+			if (creditBalance.balance < 1) {
+				return menu.end(
+					'You do not have enough transaction credits to perform this transaction.\n\nPlease buy more transaction credits to continue.',
+				);
+			}
 
 			const selectedCredentials = offering.data.requiredClaims
 				? workerCompatiblePexSelect({
@@ -793,7 +802,6 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 			// Submit RFQ
 			await TbdexHttpClient.createExchange(rfq);
 
-			const db = drizzle(env.DB);
 			await db.insert(transactions).values({
 				amount: amount.toString(),
 				status: 'pending',
@@ -811,7 +819,11 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 					'\n\n' +
 					`You have requested a quote for the conversion of ${amount} ${offering.data.payin.currencyCode} to ${offering.data.payout.currencyCode}` +
 					'\n\n' +
-					`The PFI is reviewing your request. You will receive a notification via SMS once the PFI responds with a quote.`,
+					`The PFI is reviewing your request. You will receive a notification via SMS once the PFI responds with a quote.` +
+					'\n\n' +
+					`This transaction will cost you 1 credit if you accept the quote.` +
+					'\n\n' +
+					`Thank you for using tbDEX Go!`,
 			);
 		}),
 	});
