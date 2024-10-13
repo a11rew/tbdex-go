@@ -135,3 +135,23 @@ export const ratings = sqliteTable('ratings', {
 		.default(sql`(current_timestamp)`),
 });
 export type DbRating = typeof ratings.$inferSelect;
+
+export const saved_beneficiaries = sqliteTable('saved_beneficiaries', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => `saved_beneficiary_${createId()}`),
+	user_id: text('user_id')
+		.references(() => users.id)
+		.notNull(),
+	beneficiary_name: text('beneficiary_name').notNull(),
+	pfi_did: text('pfi_did').notNull(),
+	offering_id: text('offering_id').notNull(),
+	payout_currency: text('payout_currency').notNull(),
+	payout_method: text('payout_method').notNull(),
+	payout_details: text('payout_details').notNull(),
+	created_at: text('created_at')
+		.notNull()
+		.default(sql`(current_timestamp)`),
+});
+
+export type DbSavedBeneficiary = typeof saved_beneficiaries.$inferSelect;

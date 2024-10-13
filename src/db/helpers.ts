@@ -1,5 +1,5 @@
-import { Quote } from '@tbdex/http-client';
-import { desc, eq } from 'drizzle-orm';
+import { Offering, PayoutMethod, Quote } from '@tbdex/http-client';
+import { and, desc, eq } from 'drizzle-orm';
 import { DrizzleD1Database } from 'drizzle-orm/d1';
 import {
 	DbNotification,
@@ -9,6 +9,7 @@ import {
 	go_credit_transactions,
 	notifications,
 	quotes,
+	saved_beneficiaries,
 	transactions,
 } from './schema';
 
@@ -62,4 +63,24 @@ export async function fetchGoCreditBalance(db: DrizzleD1Database, userId: string
 
 export async function addGoCreditTransaction(db: DrizzleD1Database, userId: string, amount: number, reference: string) {
 	await db.insert(go_credit_transactions).values({ user_id: userId, amount, reference });
+}
+
+export async function fetchSavedBeneficiaries(db: DrizzleD1Database, userId: string, offering: Offering, payoutMethod: PayoutMethod) {
+	const beneficiaries = await db
+		.select()
+		.from(saved_beneficiaries)
+		.where(
+			and(
+				eq(saved_beneficiaries.user_id, userId),
+				eq(saved_beneficiaries.pfi_did, offering.metadata.from),
+				eq(saved_beneficiaries.offering_id, offering.metadata.id),
+				eq(saved_beneficiaries.payout_method, payoutMethod.kind),
+				eq(saved_beneficiaries.payout_currency, offering.data.payout.currencyCode),
+			),
+		);
+	return beneficiaries;
+}
+
+export async function insertSavedBeneficiary(db: DrizzleD1Database, values: Omit<typeof saved_beneficiaries.$inferInsert, 'created_at'>) {
+	await db.insert(saved_beneficiaries).values(values);
 }

@@ -1,7 +1,10 @@
 import { makeHumanReadablePaymentMethod } from '@/constants/descriptions';
 import { PFIs } from '@/constants/pfis';
+import { fetchSavedBeneficiaries } from '@/db/helpers';
+import { DbUser } from '@/db/schema';
 import { fetchPFIOfferings } from '@/pfis';
-import { Offering } from '@tbdex/http-client';
+import { Offering, PayoutMethod } from '@tbdex/http-client';
+import { drizzle } from 'drizzle-orm/d1';
 import UssdMenu from 'ussd-builder';
 
 export async function getOfferingsByPayoutCurrencyCode(env: Env, menu: UssdMenu) {
@@ -41,4 +44,15 @@ export function generateOfferingDescription(offering: Offering, index: number) {
 		`${BLOCK_INDENT}to ${offering.data.payout.methods.map((method) => makeHumanReadablePaymentMethod(method.kind)).join(', ')}\n` +
 		`${BLOCK_INDENT}at 1 ${offering.data.payin.currencyCode} = ${offering.data.payoutUnitsPerPayinUnit} ${offering.data.payout.currencyCode}\n`
 	);
+}
+
+export async function shouldNavigateToSelectSavedBeneficiary(env: Env, menu: UssdMenu): Promise<boolean> {
+	const db = drizzle(env.DB);
+	const user = JSON.parse(await menu.session.get('user')) as DbUser;
+	const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
+	const chosenOffering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+
+	const savedBeneficiaries = await fetchSavedBeneficiaries(db, user.id, chosenOffering, chosenPayoutMethod);
+
+	return savedBeneficiaries.length > 0;
 }

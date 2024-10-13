@@ -1,5 +1,5 @@
 import { currencyDescriptions, makeHumanReadablePaymentMethod } from '@/constants/descriptions';
-import { fetchGoCreditBalance } from '@/db/helpers';
+import { fetchGoCreditBalance, insertSavedBeneficiary } from '@/db/helpers';
 import { transactions, DbUser as User } from '@/db/schema';
 import { resolveDID } from '@/did';
 import { UssdRequest } from '@/ussd';
@@ -12,7 +12,7 @@ import { PortableDid } from '@web5/dids';
 import { drizzle } from 'drizzle-orm/d1';
 import UssdMenu from 'ussd-builder';
 import type { UssdModule } from '../';
-import { generateOfferingDescription, getOfferingsByPayoutCurrencyCode } from './helpers';
+import { generateOfferingDescription, getOfferingsByPayoutCurrencyCode, shouldNavigateToSelectSavedBeneficiary } from './helpers';
 
 const stateId = 'sendMoney';
 
@@ -207,6 +207,11 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 					await menu.session.set('chosenPayoutMethod', JSON.stringify(chosenPayoutMethod));
 
 					if (chosenPayoutMethod.requiredPaymentDetails && Object.keys(chosenPayoutMethod.requiredPaymentDetails).length > 0) {
+						// TODO: Check for saved beneficiaries here
+						if (await shouldNavigateToSelectSavedBeneficiary(env, menu)) {
+							return `${stateId}.selectSavedBeneficiary`;
+						}
+
 						return `${stateId}.specifyPayoutMethodDetails`;
 					}
 
@@ -266,8 +271,6 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 		run: buildRunHandler(async () => {
 			console.log('running authenticated.sendMoney.specifyPayinMethodDetails');
 			const chosenPayinMethod = JSON.parse(await menu.session.get('chosenPayinMethod')) as PayinMethod;
-
-			console.log('chosenPayinMethod', chosenPayinMethod);
 
 			const properties = (chosenPayinMethod.requiredPaymentDetails as {
 				properties: Record<string, { title: string; description: string; type: string }>;
@@ -413,6 +416,11 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 					await menu.session.set('chosenPayoutMethod', JSON.stringify(chosenPayoutMethod));
 
 					if (chosenPayoutMethod.requiredPaymentDetails && Object.keys(chosenPayoutMethod.requiredPaymentDetails).length > 0) {
+						// TODO: Check for saved beneficiaries here
+						if (await shouldNavigateToSelectSavedBeneficiary(env, menu)) {
+							return `${stateId}.selectSavedBeneficiary`;
+						}
+
 						return `${stateId}.specifyPayoutMethodDetails`;
 					}
 
@@ -425,9 +433,20 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 		},
 	});
 
+	menu.state(`${stateId}.selectSavedBeneficiary`, {
+		run: buildRunHandler(async () => {
+			// TODO: Show saved beneficiaries here
+			// Validate offering ID matches
+			// Validate payout method matches
+			// Validate payout currency matches
+		}),
+	});
+
+	// TODO: Show saved beneficiaries here before asking for payin method details
 	menu.state(`${stateId}.specifyPayoutMethodDetails`, {
 		run: buildRunHandler(async () => {
 			const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
+			const chosenOffering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 
 			const properties = (chosenPayoutMethod.requiredPaymentDetails as {
 				properties: Record<string, { title: string; description: string; type: string }>;
@@ -548,8 +567,6 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 		run: buildRunHandler(async () => {
 			const error = await menu.session.get('specifyAmount.error');
 			const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
-			const formKey = await menu.session.get('payoutMethodDetailsFormKey');
-			const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
 
 			return await buildContinueResponse(
 				menu,
@@ -590,7 +607,7 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 				await menu.session.set('payinAmount', payinAmount);
 
 				if (!offering.data.requiredClaims) {
-					return `${stateId}.requestQuote`;
+					return `${stateId}.preRequestQuote`;
 				}
 
 				const serializedUser = await menu.session.get('user');
@@ -611,7 +628,7 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 
 				// User has all required credentials
 				if (selectedCredentials.length === offering.data.requiredClaims.input_descriptors.length) {
-					return `${stateId}.requestQuote`;
+					return `${stateId}.preRequestQuote`;
 				}
 
 				return `${stateId}.validateCredentials`;
@@ -732,10 +749,62 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 
 			await saveCustomerCredential(env, user.id, credential);
 
-			menu.go(`${stateId}.requestQuote`);
+			menu.go(`${stateId}.preRequestQuote`);
 		}),
 	});
 
+	menu.state(`${stateId}.preRequestQuote`, {
+		run: buildRunHandler(async () => {
+			return buildContinueResponse(
+				menu,
+				`Would you like to save this payout recipient's details for future transactions?` +
+					'\n\n' +
+					'This will allow you to send money to this recipient without having to re-enter their details the next time you send money to them.' +
+					'\n\n' +
+					'1. Yes, save these payout recipient details and continue' +
+					'\n' +
+					'2. No, continue without saving',
+				{
+					back: true,
+					exit: true,
+				},
+			);
+		}),
+		next: {
+			'#': '__exit__',
+			'0': `${stateId}.chooseOffering`,
+			'*': async () => {
+				if (menu.val !== '1' && menu.val !== '2') {
+					return `${stateId}.preRequestQuote`;
+				}
+
+				if (menu.val === '2') {
+					return `${stateId}.requestQuote`;
+				}
+
+				// Save beneficiary
+				const db = drizzle(env.DB);
+
+				const user = JSON.parse(await menu.session.get('user')) as User;
+				const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
+				const chosenOffering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+				const payoutMethodDetails = JSON.parse(await menu.session.get('payoutMethodDetailsFormValues')) as Record<string, string>;
+
+				await insertSavedBeneficiary(db, {
+					user_id: user.id,
+					beneficiary_name: '',
+					pfi_did: chosenOffering.metadata.from,
+					offering_id: chosenOffering.metadata.id,
+					payout_currency: chosenOffering.data.payout.currencyCode,
+					payout_method: chosenPayoutMethod.kind,
+					payout_details: JSON.stringify(payoutMethodDetails),
+				});
+				return `${stateId}.requestQuote`;
+			},
+		},
+	});
+
+	// TODO: Show prompt to save beneficiary here before requesting quote
 	menu.state(`${stateId}.requestQuote`, {
 		run: buildRunHandler(async () => {
 			const amount = await menu.session.get('payinAmount');
