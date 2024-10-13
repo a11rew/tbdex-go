@@ -22,7 +22,7 @@ export default {
 	handler: sendMoneyHandler,
 } satisfies UssdModule;
 
-function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
+function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env, ctx: ExecutionContext) {
 	menu.state(stateId, {
 		run: buildRunHandler(async () => {
 			// Fetch offerings grouped by payout currency code
@@ -738,27 +738,39 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 
 	menu.state(`${stateId}.requestQuote`, {
 		run: buildRunHandler(async () => {
-			const amount = await menu.session.get('payinAmount');
-			const db = drizzle(env.DB);
+			const [serializedUser, payinMethodDetailsString, payoutMethodDetailsString] = await Promise.all([
+				menu.session.get('user'),
+				menu.session.get(await menu.session.get('payinMethodDetailsFormKey')),
+				menu.session.get(await menu.session.get('payoutMethodDetailsFormKey')),
+			]);
 
-			const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
-			const chosenPayoutMethod = JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod;
-			const chosenPayinMethod = JSON.parse(await menu.session.get('chosenPayinMethod')) as PayinMethod;
-
-			const payinMethodDetailsStorageKey = await menu.session.get('payinMethodDetailsFormKey');
-			const payoutMethodDetailsStorageKey = await menu.session.get('payoutMethodDetailsFormKey');
-			const payinMethodDetails = JSON.parse(await menu.session.get(payinMethodDetailsStorageKey)) as Record<string, string> | undefined;
-			const payoutMethodDetails = JSON.parse(await menu.session.get(payoutMethodDetailsStorageKey)) as Record<string, string> | undefined;
-
-			const serializedUser = await menu.session.get('user');
 			if (!serializedUser) {
 				return menu.end('You are not logged in. Please login to continue.');
 			}
 
+			const db = drizzle(env.DB);
 			const user = JSON.parse(serializedUser) as User;
 			const userDID = JSON.parse(user.did) as PortableDid;
-			const userCredentials = await getCustomerCredentials(env, user.id);
-			const creditBalance = await fetchGoCreditBalance(db, user.id);
+
+			const [
+				amount,
+				offering,
+				chosenPayoutMethod,
+				chosenPayinMethod,
+				payinMethodDetails,
+				payoutMethodDetails,
+				userCredentials,
+				creditBalance,
+			] = await Promise.all([
+				menu.session.get('payinAmount'),
+				JSON.parse(await menu.session.get('chosenOffering')) as Offering,
+				JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod,
+				JSON.parse(await menu.session.get('chosenPayinMethod')) as PayinMethod,
+				payinMethodDetailsString ? (JSON.parse(payinMethodDetailsString) as Record<string, string>) : undefined,
+				payoutMethodDetailsString ? (JSON.parse(payoutMethodDetailsString) as Record<string, string>) : undefined,
+				getCustomerCredentials(env, user.id),
+				fetchGoCreditBalance(db, user.id),
+			]);
 
 			if (creditBalance.balance < 1) {
 				return menu.end(
@@ -773,7 +785,6 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 					})
 				: [];
 
-			// Request quote
 			const rfq = Rfq.create({
 				metadata: {
 					from: userDID.uri,
@@ -795,24 +806,27 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env) {
 				},
 			});
 
-			// Sign RFQ
 			const userBearerDid = await resolveDID(env, userDID);
 			await rfq.sign(userBearerDid);
 
-			// Submit RFQ
-			await TbdexHttpClient.createExchange(rfq);
-
-			await db.insert(transactions).values({
-				amount: amount.toString(),
-				status: 'pending',
-				user_id: user.id,
-				pfiDid: offering.metadata.from,
-				exchangeId: rfq.metadata.exchangeId,
-				offeringId: rfq.data.offeringId,
-				payinKind: rfq.data.payin.kind,
-				payoutKind: rfq.data.payout.kind,
-				createdAt: rfq.metadata.createdAt,
-			});
+			// Offloading this to the background because it might take a while
+			// and USSD sessions have a short timeout
+			ctx.waitUntil(
+				(async () => {
+					await TbdexHttpClient.createExchange(rfq);
+					await db.insert(transactions).values({
+						amount: amount.toString(),
+						status: 'pending',
+						user_id: user.id,
+						pfiDid: offering.metadata.from,
+						exchangeId: rfq.metadata.exchangeId,
+						offeringId: rfq.data.offeringId,
+						payinKind: rfq.data.payin.kind,
+						payoutKind: rfq.data.payout.kind,
+						createdAt: rfq.metadata.createdAt,
+					});
+				})(),
+			);
 
 			menu.end(
 				"You're almost there!" +
