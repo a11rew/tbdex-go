@@ -1,5 +1,6 @@
 import { updateExchanges } from './exchanges';
 import { handleSMSNotification } from './exchanges/notification-handler';
+import { refreshPFIOfferings } from './pfis';
 import { handleUSSDRequest } from './ussd';
 
 export default {
@@ -38,9 +39,14 @@ export default {
 	},
 	async scheduled(event, env, ctx) {
 		ctx.waitUntil(
-			updateExchanges(env).catch((error) => {
-				console.error('Error in update exchanges handler', error);
-			}),
+			Promise.all([
+				updateExchanges(env).catch((error) => {
+					console.error('Error in update exchanges handler', error);
+				}),
+				refreshPFIOfferings(env).catch((error) => {
+					console.error('Error in refresh PFI offerings handler', error);
+				}),
+			]),
 		);
 	},
 } satisfies ExportedHandler<Env>;
