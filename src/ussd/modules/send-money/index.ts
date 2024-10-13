@@ -548,8 +548,6 @@ function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env, ctx: E
 		run: buildRunHandler(async () => {
 			const error = await menu.session.get('specifyAmount.error');
 			const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
-			const formKey = await menu.session.get('payoutMethodDetailsFormKey');
-			const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
 
 			return await buildContinueResponse(
 				menu,
