@@ -6,11 +6,11 @@ import { buildContinueResponse, buildRunHandler } from '../builders';
 
 const stateId = 'transaction-credits';
 
-const handler: UssdModule['handler'] = (menu, request, env, ctx) => {
+const handler: UssdModule['handler'] = (menu, env, ctx) => {
 	menu.state(stateId, {
 		run: buildRunHandler(async () => {
 			const db = drizzle(env.DB);
-			const user = await getUserByPhoneNumber(env, request.phoneNumber);
+			const user = await getUserByPhoneNumber(env, menu.args.phoneNumber);
 			const goCreditBalance = await fetchGoCreditBalance(db, user.id);
 
 			buildContinueResponse(

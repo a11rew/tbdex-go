@@ -24,18 +24,26 @@ export default {
 			return new Response('No request body', { status: 400 });
 		}
 
-		const body = await request.formData();
-		const jsonBody = Object.fromEntries(body.entries());
+		const provider = urlPath === '/nalo' ? 'nalo' : 'africasTalking';
+
+		const body = provider === 'nalo' ? await request.json() : Object.fromEntries((await request.formData()).entries());
 
 		const response = await handleUSSDRequest(
-			// @ts-expect-error - TODO: Add runtime type validation
-			jsonBody,
+			body,
 			env,
 			ctx,
-			urlPath === '/nalo' ? 'nalo' : 'africasTalking',
+			// @ts-expect-error - nalo provider is not typed correctly
+			provider,
 		);
 
-		return new Response(response);
+		console.log('response length', response.length);
+		if (response.length > 150) {
+			console.warn('Response is too long');
+			console.log('Only the following will be sent to the client:');
+			console.log(response.slice(4, 154));
+		}
+
+		return provider === 'nalo' ? Response.json(response) : new Response(response);
 	},
 	async scheduled(event, env, ctx) {
 		ctx.waitUntil(

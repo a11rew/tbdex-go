@@ -7,14 +7,14 @@ import { buildContinueResponse, buildRunHandler } from '../builders';
 
 const stateId = 'transaction-history';
 
-const handler: UssdModule['handler'] = (menu, request, env, ctx) => {
+const handler: UssdModule['handler'] = (menu, env, ctx) => {
 	menu.state(stateId, {
 		run: buildRunHandler(async () => {
 			buildContinueResponse(
 				menu,
 				'Transaction History' +
 					'\n\n' +
-					`Request a transaction history report to be delivered to your number ${request.phoneNumber} via SMS` +
+					`Request a transaction history report to be delivered to your number ${menu.args.phoneNumber} via SMS` +
 					'\n\n' +
 					'1. Confirm',
 				{
@@ -27,7 +27,7 @@ const handler: UssdModule['handler'] = (menu, request, env, ctx) => {
 			'#': '__exit__',
 			'0': 'user.registered',
 			'1': async () => {
-				await sendTransactionHistoryReport(env, request.phoneNumber);
+				await sendTransactionHistoryReport(env, menu.args.phoneNumber);
 				return 'transaction-history.report-sent';
 			},
 		},
@@ -35,14 +35,14 @@ const handler: UssdModule['handler'] = (menu, request, env, ctx) => {
 
 	menu.state('transaction-history.report-sent', {
 		run: buildRunHandler(() => {
-			menu.end(`We have sent your transaction history to ${request.phoneNumber}.`);
+			menu.end(`We have sent your transaction history to ${menu.args.phoneNumber}.`);
 		}),
 	});
 };
 
 export default {
 	id: stateId,
-	description: 'See Transaction History',
+	description: 'Transaction History',
 	handler,
 } satisfies UssdModule;
 

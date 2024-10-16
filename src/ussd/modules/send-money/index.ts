@@ -2,7 +2,6 @@ import { currencyDescriptions, makeHumanReadablePaymentMethod } from '@/constant
 import { fetchGoCreditBalance } from '@/db/helpers';
 import { transactions, DbUser as User } from '@/db/schema';
 import { resolveDID } from '@/did';
-import { UssdRequest } from '@/ussd';
 import { buildContinueResponse, buildFormMenu, buildRunHandler, sessionErrors } from '@/ussd/builders';
 import { createCredential, getCustomerCredentials, saveCustomerCredential } from '@/vc';
 import { KnownVcs, workerCompatiblePexSelect } from '@/vc/known-vcs';
@@ -22,7 +21,7 @@ export default {
 	handler: sendMoneyHandler,
 } satisfies UssdModule;
 
-function sendMoneyHandler(menu: UssdMenu, request: UssdRequest, env: Env, ctx: ExecutionContext) {
+function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 	menu.state(stateId, {
 		run: buildRunHandler(async () => {
 			// Fetch offerings grouped by payout currency code

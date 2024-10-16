@@ -5,7 +5,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import type { UssdModule } from '.';
 import { buildContinueResponse, buildRunHandler } from '../builders';
 
-const handler: UssdModule['handler'] = (menu, request, env, ctx) => {
+const handler: UssdModule['handler'] = (menu, env, ctx) => {
 	menu.state('profile', {
 		run: buildRunHandler(async () => {
 			buildContinueResponse(

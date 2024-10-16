@@ -1,7 +1,6 @@
 import UssdMenu from 'ussd-builder';
 
 import { getUserByPhoneNumber, registerUser } from '@/user';
-import { UssdRequest } from '..';
 import { buildRunHandler } from '../builders';
 import profileModule from './profile';
 import sendMoneyModule from './send-money';
@@ -11,22 +10,22 @@ import transactionHistoryModule from './transaction-history';
 export type UssdModule = {
 	id: string;
 	description: string;
-	handler: (menu: UssdMenu, request: UssdRequest, env: Env, ctx: ExecutionContext) => void;
-	nextHandler?: (menu: UssdMenu, request: UssdRequest, env: Env, ctx: ExecutionContext) => string | Promise<string>;
+	handler: (menu: UssdMenu, env: Env, ctx: ExecutionContext) => void;
+	nextHandler?: (menu: UssdMenu, env: Env, ctx: ExecutionContext) => string | Promise<string>;
 };
 
 const modules = [sendMoneyModule, profileModule, transactionHistoryModule, transactionCreditsModule] satisfies UssdModule[];
 
-export async function registerModules(menu: UssdMenu, request: UssdRequest, env: Env, ctx: ExecutionContext) {
+export async function registerModules(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 	modules.forEach((module) => {
-		module.handler(menu, request, env, ctx);
+		module.handler(menu, env, ctx);
 	});
 
 	menu.state('user.registered', {
 		run: buildRunHandler(() => {
 			menu.con(
 				'Welcome to tbDEX Go.\n\n' +
-					'Choose an option below to continue:\n' +
+					'Choose an option below to continue\n' +
 					`1. ${sendMoneyModule.description}\n` +
 					`2. ${profileModule.description}\n` +
 					`3. ${transactionHistoryModule.description}\n` +
@@ -61,7 +60,7 @@ export async function registerModules(menu: UssdMenu, request: UssdRequest, env:
 	menu.state('createNewDID', {
 		run: buildRunHandler(() => {
 			menu.con(
-				`We'll create a unique DID linked to your mobile number. You can access your DID from your profile anytime.\n\nYou'll be signed up to tbDEX Go using ${request.phoneNumber}.` +
+				`We'll create a unique DID linked to your mobile number. You can access your DID from your profile anytime.\n\nYou'll be signed up to tbDEX Go using ${menu.args.phoneNumber}.` +
 					'\n\n1. Confirm' +
 					'\n\n0. Go Back' +
 					'\n#. Exit',
@@ -70,9 +69,9 @@ export async function registerModules(menu: UssdMenu, request: UssdRequest, env:
 		next: {
 			1: async () => {
 				try {
-					await registerUser(env, request.phoneNumber);
+					await registerUser(env, menu.args.phoneNumber);
 
-					const user = await getUserByPhoneNumber(env, request.phoneNumber);
+					const user = await getUserByPhoneNumber(env, menu.args.phoneNumber);
 					await menu.session.set('user', user);
 
 					return 'register.success';
@@ -91,7 +90,7 @@ export async function registerModules(menu: UssdMenu, request: UssdRequest, env:
 			menu.end(
 				'Welcome to tbDEX go!' +
 					'\n\nYou have been registered successfully.' +
-					`\n\nDial ${request.serviceCode} to access tbDEX Go at any time.`,
+					`\n\nDial ${menu.args.serviceCode} to access tbDEX Go at any time.`,
 			);
 		}),
 	});
