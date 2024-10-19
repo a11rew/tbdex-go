@@ -2,6 +2,7 @@ import { makeHumanReadablePaymentMethod, toTitleCase } from '@/constants/descrip
 import { getTransactionHistory } from '@/exchanges/helpers';
 import { publishSMS } from '@/sms';
 import { getUserByPhoneNumber } from '@/user';
+import { makeIDHumanReadable } from '@/utils';
 import { UssdModule } from '.';
 import { buildContinueResponse, buildRunHandler } from '../builders';
 
@@ -57,7 +58,7 @@ async function sendTransactionHistoryReport(env: Env, phoneNumber: string) {
 		transactionHistory
 			.map((tx, idx) =>
 				[
-					`${idx + 1}. Transaction ID: ${tx.id}`,
+					`${idx + 1}. Transaction ID: (${makeIDHumanReadable(tx.id)}) - ${tx.id}`,
 					`Created at: ${tx.createdAt}`,
 					`Payin method: ${makeHumanReadablePaymentMethod(tx.payinKind)}`,
 					`Payout method: ${makeHumanReadablePaymentMethod(tx.payoutKind)}`,

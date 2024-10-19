@@ -2,6 +2,7 @@ import { fetchLatestQuote } from '@/db/helpers';
 import { DbQuote, DbTransaction, DbUser, ratings, transactions, users } from '@/db/schema';
 import { resolveDID } from '@/did';
 import { publishSMS } from '@/sms';
+import { makeIDHumanReadable } from '@/utils';
 import { Close, Order, TbdexHttpClient } from '@tbdex/http-client';
 import { BearerDid, PortableDid } from '@web5/dids';
 import { desc, eq } from 'drizzle-orm';
@@ -69,7 +70,11 @@ async function handleQuoteResponse(env: Env, user: DbUser, transaction: DbTransa
 
 	if (quote.expiresAt && new Date(quote.expiresAt) < new Date()) {
 		console.log('SMS Notification received for expired quote', transaction.id);
-		await publishSMS(env, user.phoneNumber, `Your quote for transaction ${transaction.id} has expired. Please create a new one.`);
+		await publishSMS(
+			env,
+			user.phoneNumber,
+			`Your quote for transaction ${makeIDHumanReadable(transaction.id)} has expired. Please request a new one.`,
+		);
 		return;
 	}
 
@@ -98,7 +103,11 @@ async function submitOrder(
 	userPortableDID: PortableDid,
 	userBearerDID: BearerDid,
 ) {
-	await publishSMS(env, user.phoneNumber, `Your request to place an order for transaction ${transaction.id} is being processed.`);
+	await publishSMS(
+		env,
+		user.phoneNumber,
+		`Your request to place an order for transaction ${makeIDHumanReadable(transaction.id)} is being processed.`,
+	);
 
 	try {
 		const order = Order.create({
@@ -118,7 +127,7 @@ async function submitOrder(
 		await publishSMS(
 			env,
 			user.phoneNumber,
-			`There was an error submitting your order request for transaction ${transaction.id}. Please try again.`,
+			`There was an error submitting your order request for transaction ${makeIDHumanReadable(transaction.id)}. Please try again.`,
 		);
 	}
 }
@@ -131,7 +140,7 @@ async function cancelTransaction(
 	userPortableDID: PortableDid,
 	userBearerDID: BearerDid,
 ) {
-	await publishSMS(env, user.phoneNumber, `Your request to cancel transaction ${transaction.id} is being processed.`);
+	await publishSMS(env, user.phoneNumber, `Your request to cancel transaction ${makeIDHumanReadable(transaction.id)} is being processed.`);
 
 	try {
 		const close = Close.create({
@@ -153,7 +162,11 @@ async function cancelTransaction(
 		await processClose(env, user, transaction, close);
 	} catch (error) {
 		console.error('Error submitting close', error);
-		await publishSMS(env, user.phoneNumber, `There was an error cancelling your transaction ${transaction.id}. Please try again.`);
+		await publishSMS(
+			env,
+			user.phoneNumber,
+			`There was an error cancelling your transaction ${makeIDHumanReadable(transaction.id)}. Please try again.`,
+		);
 	}
 }
 

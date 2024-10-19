@@ -1,6 +1,7 @@
 import { OrderStatus } from '@tbdex/http-client';
 import axios from 'axios';
 import { DbQuote, DbTransaction, DbUser } from './db/schema';
+import { makeIDHumanReadable } from './utils';
 
 function initSMSClient(env: Env) {
 	const options = {
@@ -56,7 +57,7 @@ export async function publishQuoteNotificationSMS(
 	const payinAmount = Number(quote.payinAmount) + fee;
 
 	const message =
-		`You have received a quote for transaction with ID ${transaction.id}.` +
+		`You have received a quote for transaction with ID ${makeIDHumanReadable(transaction.id)}.` +
 		`\n\n` +
 		`You will pay: ${payinAmount} ${quote.payinCurrency} (includes fee)` +
 		`\n` +
@@ -90,7 +91,7 @@ export async function publishOrderNotificationSMS(
 	const payinAmount = Number(quote.payinAmount) + fee;
 
 	const message =
-		`You have successfully placed an order for transaction ${transaction.id}.` +
+		`You have successfully placed an order for transaction ${makeIDHumanReadable(transaction.id)}.` +
 		`\n\n` +
 		`You will pay: ${payinAmount} ${quote.payinCurrency} (includes fee)` +
 		`\n` +
@@ -112,7 +113,7 @@ export async function publishOrderNotificationSMS(
 export async function publishCloseNotificationSMS(env: Env, user: DbUser, success: boolean, transaction: DbTransaction, reason?: string) {
 	const sms = initSMSClient(env);
 
-	const message = `Your transaction with ID ${transaction.id} has been ${success ? 'completed' : 'cancelled'}${reason ? `: ${reason}` : ''}.`;
+	const message = `Your transaction with ID ${makeIDHumanReadable(transaction.id)} has been ${success ? 'completed' : 'cancelled'}${reason ? `: ${reason}` : ''}.`;
 	const to = user.phoneNumber;
 
 	return await sms.send({
@@ -124,7 +125,7 @@ export async function publishCloseNotificationSMS(env: Env, user: DbUser, succes
 export async function publishStatusUpdateNotificationSMS(env: Env, user: DbUser, transaction: DbTransaction, status: OrderStatus) {
 	const sms = initSMSClient(env);
 
-	const message = `Your transaction with ID ${transaction.id} has received a status update: ${status.data.orderStatus}`;
+	const message = `Your transaction with ID ${makeIDHumanReadable(transaction.id)} has received a status update: ${status.data.orderStatus}`;
 	const to = user.phoneNumber;
 
 	return await sms.send({
@@ -137,7 +138,7 @@ export async function publishRateTransactionSMS(env: Env, user: DbUser, transact
 	const sms = initSMSClient(env);
 
 	const message =
-		`Please rate your transaction with ID ${transaction.id}.` +
+		`Please rate your transaction with ID ${makeIDHumanReadable(transaction.id)}.` +
 		`\n\n` +
 		`Rating your experience with this PFI helps us improve our service.` +
 		`\n\n` +
