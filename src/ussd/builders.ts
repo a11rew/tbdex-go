@@ -55,15 +55,35 @@ export async function buildFormMenu<T extends Record<string, string>>(
 export async function buildContinueResponse(
 	menu: UssdMenu,
 	text: string,
-	{ back = false, exit = false }: { back?: boolean; exit?: boolean } = {},
+	{ back = false, exit = false, withTruncationSupport = false }: { back?: boolean; exit?: boolean; withTruncationSupport?: boolean } = {},
 ) {
 	// Reads the special error key from the session and returns a continue response with the error message
 	const error = await menu.session.get('__error__');
 
-	const message = [error && error + '\n', text, ' ', back && '0. Back', exit && '#. Exit'].filter(Boolean).join('\n').trimEnd();
+	let message = [error && error + '\n', text, ' ', back && '0. Back', exit && '#. Exit'].filter(Boolean).join('\n').trimEnd();
 
 	// Clear the error from the session
 	await menu.session.set('__error__', '');
+
+	if (withTruncationSupport) {
+		const numberOfContinues = menu.args.text.split('*').filter((arg) => arg === '00').length;
+
+		// Slice from 0 to 140 characters if the message length exceeds the 150 char limit
+		// Append a "00. More" to the message
+		if (message.length > 150) {
+			const step = 140;
+			const sliceStart = numberOfContinues * step;
+			const sliceEnd = sliceStart + 140;
+
+			let slicedMessage = message.slice(sliceStart, sliceEnd);
+
+			if (sliceEnd < message.length) {
+				slicedMessage += '...\n\n00. More';
+			}
+
+			return menu.con(slicedMessage);
+		}
+	}
 
 	return menu.con(message);
 }
