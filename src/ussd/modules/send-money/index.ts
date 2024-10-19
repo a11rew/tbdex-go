@@ -2,6 +2,7 @@ import { currencyDescriptions, makeHumanReadablePaymentMethod } from '@/constant
 import { fetchGoCreditBalance } from '@/db/helpers';
 import { transactions, DbUser as User } from '@/db/schema';
 import { resolveDID } from '@/did';
+import { publishSMS } from '@/sms';
 import { buildContinueResponse, buildFormMenu, buildRunHandler, sessionErrors } from '@/ussd/builders';
 import { createCredential, getCustomerCredentials, saveCustomerCredential } from '@/vc';
 import { KnownVcs, workerCompatiblePexSelect } from '@/vc/known-vcs';
@@ -24,17 +25,36 @@ export default {
 function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 	menu.state(stateId, {
 		run: buildRunHandler(async () => {
+			// Count the number of occurrences of '*0' in the text
+			const paginationIndex = (menu.args.text.match(/\*0/g) || []).length;
+
 			// Fetch offerings grouped by payout currency code
 			const offeringsByPayoutCurrencyCode = await getOfferingsByPayoutCurrencyCode(env, menu);
+			const offeringsByPayoutCurrencyCodeKeys = Object.keys(offeringsByPayoutCurrencyCode);
+
+			// Paginate offerings
+			const PER_PAGE = 4;
+			const startIndex = paginationIndex * PER_PAGE;
+			const endIndex = (paginationIndex + 1) * PER_PAGE;
+			const paginatedOfferingKeys =
+				startIndex < offeringsByPayoutCurrencyCodeKeys.length
+					? offeringsByPayoutCurrencyCodeKeys.slice(startIndex, endIndex)
+					: offeringsByPayoutCurrencyCodeKeys.slice(0, PER_PAGE);
+
+			const hasMorePages = Object.keys(offeringsByPayoutCurrencyCode).length > endIndex;
 
 			// Show user available payout currencies
 			buildContinueResponse(
 				menu,
-				'Where do you want to send money to?' +
-					'\n\n' +
-					Object.keys(offeringsByPayoutCurrencyCode)
-						.map((key, index) => `${index + 1}. ${key}` + (currencyDescriptions[key] ? ` (${currencyDescriptions[key]})` : ''))
-						.join('\n'),
+				'Where do you want to send money to?\n\n' +
+					paginatedOfferingKeys
+						.map(
+							(key) =>
+								`${offeringsByPayoutCurrencyCodeKeys.indexOf(key) + 1}. ${key}` +
+								(currencyDescriptions[key] ? ` - ${currencyDescriptions[key]}` : ''),
+						)
+						.join('\n') +
+					(hasMorePages ? '\n\n0. More options' : ''),
 				{ exit: true },
 			);
 		}),
@@ -157,7 +177,7 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 					`You are sending ${payinCurrencyCode} to ${payoutCurrencyCode}.\n` +
 						'Choose an offering to proceed:\n' +
 						'\n' +
-						offerings.map((offering, index) => generateOfferingDescription(offering, index)).join('\n\n'),
+						offerings.map((offering, index) => generateOfferingDescription(offering, index)).join('\n'),
 					{ back: true, exit: true },
 				);
 			} catch (error) {
@@ -281,20 +301,16 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 				.slice(1)
 				.map(([key, detail], index) => ({
 					key,
-					label: `${index + 2}. ${detail.title} - ${detail.description}`,
+					label: `${index + 2}. ${detail.title} (${detail.description})`,
 				}));
 
 			await menu.session.set('payinMethodDetailsFormAdditionalFields', JSON.stringify(additionalFormFields));
 
 			return await buildContinueResponse(
 				menu,
-				`You need to provide the following details for the payment method you will pay from:` +
+				`We need some details about your payin method:` +
 					'\n\n' +
-					Object.entries(properties)
-						.map(([, detail], index) => `${index + 1}. ${detail.title} - ${detail.description}`)
-						.join('\n') +
-					'\n\n' +
-					`To begin, enter the value of "${Object.values(properties)[0].title}".`,
+					`Enter the ${Object.values(properties)[0].title} (${Object.values(properties)[0].description}).`,
 				{ back: true, exit: true },
 			);
 		}),
@@ -388,7 +404,7 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 			buildContinueResponse(
 				menu,
 				'Choose one of the following payout methods to proceed.' +
-					'\n' +
+					'\n\n' +
 					offering.data.payout.methods.map((method, index) => `${index + 1}. ${makeHumanReadablePaymentMethod(method.kind)}`).join('\n'),
 				{ back: true, exit: true },
 			);
@@ -441,20 +457,16 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 				.slice(1)
 				.map(([key, detail], index) => ({
 					key,
-					label: `${index + 2}. ${detail.title} - ${detail.description}`,
+					label: `${index + 2}. ${detail.title} (${detail.description})`,
 				}));
 
 			await menu.session.set('payoutMethodDetailsFormAdditionalFields', JSON.stringify(additionalFormFields));
 
 			return await buildContinueResponse(
 				menu,
-				`You need to provide the following details for the payment method you will receive the funds to:` +
+				`We need some details about your payout method:` +
 					'\n\n' +
-					Object.entries(properties)
-						.map(([, detail], index) => `${index + 1}. ${detail.title} - ${detail.description}`)
-						.join('\n') +
-					'\n\n' +
-					`To begin, enter the ${Object.values(properties)[0].title} of the recipient.`,
+					`Enter the ${Object.values(properties)[0].title} (${Object.values(properties)[0].description}).`,
 				{ back: true, exit: true },
 			);
 		}),
@@ -663,13 +675,9 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 
 			buildContinueResponse(
 				menu,
-				`To proceed with this offering, you need to provide the following details for the verifiable credential required by this PFI` +
+				`We need some details about you to create the verifiable credential required by this PFI:` +
 					'\n\n' +
-					Object.entries(knownCredential.schema.shape)
-						.map(([key, detail], index) => `${index + 1}. ${detail.description}`)
-						.join('\n') +
-					'\n\n' +
-					`To begin, enter the value of "${Object.values(knownCredential.schema.shape)[0].description}".`,
+					`Please enter your ${Object.values(knownCredential.schema.shape)[0].description}.`,
 				{ back: true, exit: true },
 			);
 		}),
@@ -701,45 +709,27 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 							...form,
 						});
 
-						return `${stateId}.createCredential`;
+						return `${stateId}.requestQuote`;
 					});
 
 					return additionalFormFieldsEntryPoint;
 				}
 
-				return `${stateId}.createCredential`;
+				return `${stateId}.requestQuote`;
 			},
 		},
 	});
 
-	menu.state(`${stateId}.createCredential`, {
-		run: buildRunHandler(async () => {
-			const formKey = await menu.session.get('claimCreationFormKey');
-			const formValuesInSession = JSON.parse(await menu.session.get(formKey)) as Record<string, string>;
-			const creatableCredentialId = await menu.session.get('creatableCredentialId');
-
-			const serializedUser = await menu.session.get('user');
-			if (!serializedUser) {
-				return menu.end('You are not logged in. Please login to continue.');
-			}
-			const user = JSON.parse(serializedUser) as User;
-			const userDID = JSON.parse(user.did) as PortableDid;
-
-			const credential = await createCredential(userDID.uri, creatableCredentialId, formValuesInSession);
-
-			await saveCustomerCredential(env, user.id, credential);
-
-			menu.go(`${stateId}.requestQuote`);
-		}),
-	});
-
 	menu.state(`${stateId}.requestQuote`, {
 		run: buildRunHandler(async () => {
-			const [serializedUser, payinMethodDetailsString, payoutMethodDetailsString] = await Promise.all([
-				menu.session.get('user'),
-				menu.session.get(await menu.session.get('payinMethodDetailsFormKey')),
-				menu.session.get(await menu.session.get('payoutMethodDetailsFormKey')),
-			]);
+			const [serializedUser, payinMethodDetailsString, payoutMethodDetailsString, claimCreationFormKey, creatableCredentialId] =
+				await Promise.all([
+					menu.session.get('user'),
+					menu.session.get(await menu.session.get('payinMethodDetailsFormKey')),
+					menu.session.get(await menu.session.get('payoutMethodDetailsFormKey')),
+					menu.session.get('claimCreationFormKey'),
+					menu.session.get('creatableCredentialId'),
+				]);
 
 			if (!serializedUser) {
 				return menu.end('You are not logged in. Please login to continue.');
@@ -754,18 +744,18 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 				offering,
 				chosenPayoutMethod,
 				chosenPayinMethod,
+				claimCreationFormValues,
 				payinMethodDetails,
 				payoutMethodDetails,
-				userCredentials,
 				creditBalance,
 			] = await Promise.all([
 				menu.session.get('payinAmount'),
 				JSON.parse(await menu.session.get('chosenOffering')) as Offering,
 				JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod,
 				JSON.parse(await menu.session.get('chosenPayinMethod')) as PayinMethod,
+				JSON.parse(await menu.session.get(claimCreationFormKey)) as Record<string, string>,
 				payinMethodDetailsString ? (JSON.parse(payinMethodDetailsString) as Record<string, string>) : undefined,
 				payoutMethodDetailsString ? (JSON.parse(payoutMethodDetailsString) as Record<string, string>) : undefined,
-				getCustomerCredentials(env, user.id),
 				fetchGoCreditBalance(db, user.id),
 			]);
 
@@ -775,41 +765,58 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 				);
 			}
 
-			const selectedCredentials = offering.data.requiredClaims
-				? workerCompatiblePexSelect({
-						presentationDefinition: offering.data.requiredClaims,
-						vcJwts: userCredentials,
-					})
-				: [];
-
-			const rfq = Rfq.create({
-				metadata: {
-					from: userDID.uri,
-					to: offering.metadata.from,
-					protocol: '1.0',
-				},
-				data: {
-					offeringId: offering.metadata.id,
-					payin: {
-						amount: amount.toString(),
-						kind: chosenPayinMethod.kind,
-						paymentDetails: payinMethodDetails ?? {},
-					},
-					payout: {
-						kind: chosenPayoutMethod.kind,
-						paymentDetails: payoutMethodDetails ?? {},
-					},
-					claims: selectedCredentials,
-				},
-			});
-
-			const userBearerDid = await resolveDID(env, userDID);
-			await rfq.sign(userBearerDid);
-
 			// Offloading this to the background because it might take a while
 			// and USSD sessions have a short timeout
 			ctx.waitUntil(
 				(async () => {
+					await publishSMS(
+						env,
+						user.phoneNumber,
+						`You have requested a quote for the conversion of ${amount} ${offering.data.payin.currencyCode} to ${offering.data.payout.currencyCode}` +
+							'\n\n' +
+							`The PFI is reviewing your request. You will receive a notification via SMS once the PFI responds with a quote.` +
+							'\n\n' +
+							`This transaction will cost you 1 credit if you accept the quote.` +
+							'\n\n' +
+							`Thank you for using tbDEX Go!`,
+					);
+
+					const credential = await createCredential(userDID.uri, creatableCredentialId, claimCreationFormValues);
+
+					await saveCustomerCredential(env, user.id, credential);
+					const userCredentials = await getCustomerCredentials(env, user.id);
+
+					const selectedCredentials = offering.data.requiredClaims
+						? workerCompatiblePexSelect({
+								presentationDefinition: offering.data.requiredClaims,
+								vcJwts: userCredentials,
+							})
+						: [];
+
+					const rfq = Rfq.create({
+						metadata: {
+							from: userDID.uri,
+							to: offering.metadata.from,
+							protocol: '1.0',
+						},
+						data: {
+							offeringId: offering.metadata.id,
+							payin: {
+								amount: amount.toString(),
+								kind: chosenPayinMethod.kind,
+								paymentDetails: payinMethodDetails ?? {},
+							},
+							payout: {
+								kind: chosenPayoutMethod.kind,
+								paymentDetails: payoutMethodDetails ?? {},
+							},
+							claims: selectedCredentials,
+						},
+					});
+
+					const userBearerDid = await resolveDID(env, userDID);
+					await rfq.sign(userBearerDid);
+
 					await TbdexHttpClient.createExchange(rfq);
 					await db.insert(transactions).values({
 						amount: amount.toString(),
@@ -830,11 +837,7 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 					'\n\n' +
 					`You have requested a quote for the conversion of ${amount} ${offering.data.payin.currencyCode} to ${offering.data.payout.currencyCode}` +
 					'\n\n' +
-					`The PFI is reviewing your request. You will receive a notification via SMS once the PFI responds with a quote.` +
-					'\n\n' +
-					`This transaction will cost you 1 credit if you accept the quote.` +
-					'\n\n' +
-					`Thank you for using tbDEX Go!`,
+					`You will receive further instructions via SMS.`,
 			);
 		}),
 	});

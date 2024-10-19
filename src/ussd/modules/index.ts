@@ -46,7 +46,8 @@ export async function registerModules(menu: UssdMenu, env: Env, ctx: ExecutionCo
 		run: buildRunHandler(() => {
 			menu.con(
 				'Welcome to tbDEX Go.\n\n' +
-					'To get started, create or import your Decentralized ID (DID). Your DID allows you to send money across borders instantly and securely.\n\n' +
+					'To get started, create or import your Decentralized ID (DID).\n\n' +
+					// +'Your DID allows you to send money across borders instantly and securely.\n\n' +
 					'1. Create a New DID\n' +
 					'2. Import Existing DID\n',
 			);
@@ -60,9 +61,9 @@ export async function registerModules(menu: UssdMenu, env: Env, ctx: ExecutionCo
 	menu.state('createNewDID', {
 		run: buildRunHandler(() => {
 			menu.con(
-				`We'll create a unique DID linked to your mobile number. You can access your DID from your profile anytime.\n\nYou'll be signed up to tbDEX Go using ${menu.args.phoneNumber}.` +
+				`We'll create a unique DID linked to your number (${menu.args.phoneNumber}). \n\nYou can access your DID from your profile anytime.` +
 					'\n\n1. Confirm' +
-					'\n\n0. Go Back' +
+					'\n\n0. Back' +
 					'\n#. Exit',
 			);
 		}),
@@ -90,7 +91,7 @@ export async function registerModules(menu: UssdMenu, env: Env, ctx: ExecutionCo
 			menu.end(
 				'Welcome to tbDEX go!' +
 					'\n\nYou have been registered successfully.' +
-					`\n\nDial ${menu.args.serviceCode} to access tbDEX Go at any time.`,
+					`\n\nDial ${menu.args.serviceCode ?? '*920*860#'} to access tbDEX Go and get started.`,
 			);
 		}),
 	});
