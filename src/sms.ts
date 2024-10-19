@@ -1,7 +1,7 @@
 import { OrderStatus } from '@tbdex/http-client';
 import axios from 'axios';
 import { DbQuote, DbTransaction, DbUser } from './db/schema';
-import { makeIDHumanReadable } from './utils';
+import { formatDate, makeIDHumanReadable } from './utils';
 
 function initSMSClient(env: Env) {
 	const options = {
@@ -64,8 +64,7 @@ export async function publishQuoteNotificationSMS(
 		`You will receive: ${quote.payoutAmount} ${quote.payoutCurrency}` +
 		`\n` +
 		`Fee: ${fee} ${quote.payinCurrency}` +
-		`\n` +
-		`Expires at: ${quote.expiresAt}` + // TODO: Format date, human readable and relative to current time
+		(quote.expiresAt ? `\nExpires at: ${formatDate(quote.expiresAt)}` : '') +
 		`\n\n` +
 		`Reply with "1" to accept this quote and place an order. Reply with "0" to reject the quote.` +
 		`\n\n` +
