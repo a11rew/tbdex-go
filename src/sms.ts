@@ -124,7 +124,7 @@ export async function publishCloseNotificationSMS(env: Env, user: DbUser, succes
 export async function publishStatusUpdateNotificationSMS(env: Env, user: DbUser, transaction: DbTransaction, status: OrderStatus) {
 	const sms = initSMSClient(env);
 
-	const message = `Your transaction with ID ${makeIDHumanReadable(transaction.id)} has received a status update: ${status.data.orderStatus}`;
+	const message = `Your transaction with ID ${makeIDHumanReadable(transaction.id)} has received a status update: "${status.data.orderStatus.replace(/_/g, ' ')}"`;
 	const to = user.phoneNumber;
 
 	return await sms.send({
@@ -137,13 +137,17 @@ export async function publishRateTransactionSMS(env: Env, user: DbUser, transact
 	const sms = initSMSClient(env);
 
 	const message =
-		`Please rate your transaction with ID ${makeIDHumanReadable(transaction.id)}.` +
+		`How was your experience using tbDEX Go for your transaction with ID ${makeIDHumanReadable(transaction.id)}? Reply 1, 2, 3, 4, or 5 to let us know.` +
 		`\n\n` +
-		`Rating your experience with this PFI helps us improve our service.` +
-		`\n\n` +
-		`Reply with a number between 1 and 5 to rate the transaction.` +
+		`1. Very poor` +
 		`\n` +
-		`1 being a terrible experience and 5 being an excellent experience.`;
+		`2. Unsatisfactory` +
+		`\n` +
+		`3. Average` +
+		`\n` +
+		`4. Very good` +
+		`\n` +
+		`5. Amazing!`;
 
 	const to = user.phoneNumber;
 
