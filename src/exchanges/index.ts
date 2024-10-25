@@ -58,7 +58,6 @@ async function processUserTransactions(env: Env, db: DrizzleD1Database, userIds:
 
 			const transactionExchangeMap = await fetchExchanges(userBearerDID, transactionsByPfiDid);
 
-			console.log('transactionExchangeMap', userId, JSON.stringify(transactionExchangeMap));
 			await processExchanges(env, user, transactionExchangeMap, transactions);
 		}),
 	);

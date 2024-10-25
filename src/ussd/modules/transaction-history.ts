@@ -69,7 +69,5 @@ async function sendTransactionHistoryReport(env: Env, phoneNumber: string) {
 		'\n\n' +
 		'Thank you for using tbDEX Go!';
 
-	console.log(message);
-
 	await publishSMS(env, phoneNumber, message);
 }

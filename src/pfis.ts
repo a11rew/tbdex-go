@@ -48,11 +48,9 @@ export async function fetchPFIOfferings(env: Env) {
 }
 
 export async function refreshPFIOfferings(env: Env) {
-	console.log('Refreshing PFI offerings');
 	// Check how long ago the offerings were last refreshed
 	const lastRefreshed = await env.data_cache.get('pfi-offerings-last-refreshed');
 	if (lastRefreshed && new Date().getTime() - new Date(lastRefreshed).getTime() < 60 * 60 * 1000) {
-		console.log('PFI offerings were last refreshed less than an hour ago, so skipping refresh');
 		// Offerings were last refreshed less than an hour ago, so don't refresh again
 		return;
 	}
@@ -80,5 +78,4 @@ export async function refreshPFIOfferings(env: Env) {
 	await env.data_cache.put('pfi-offerings', JSON.stringify(fetchedOfferingsByPfiId));
 	// Cache last refresh time
 	await env.data_cache.put('pfi-offerings-last-refreshed', new Date().toISOString());
-	console.log('PFI offerings refreshed');
 }
