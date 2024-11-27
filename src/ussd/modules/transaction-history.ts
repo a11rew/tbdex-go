@@ -11,6 +11,8 @@ const stateId = 'transaction-history';
 const handler: UssdModule['handler'] = (menu, env, ctx) => {
 	menu.state(stateId, {
 		run: buildRunHandler(async () => {
+			await publishSMS(env, menu.args.phoneNumber, 'Sending transaction history report...');
+
 			buildContinueResponse(
 				menu,
 				'Transaction History' +
@@ -28,15 +30,33 @@ const handler: UssdModule['handler'] = (menu, env, ctx) => {
 			'#': '__exit__',
 			'0': 'user.registered',
 			'1': async () => {
-				await sendTransactionHistoryReport(env, menu.args.phoneNumber);
-				return 'transaction-history.report-sent';
+				try {
+					return await sendTransactionHistoryReport(env, menu.args.phoneNumber);
+				} catch (error) {
+					console.error('Error sending transaction history report', error);
+					return 'transaction-history.report-error';
+				}
 			},
 		},
 	});
 
 	menu.state('transaction-history.report-sent', {
 		run: buildRunHandler(() => {
-			menu.end(`We have sent your transaction history to ${menu.args.phoneNumber}.`);
+			menu.end(
+				`We have sent your transaction history to ${menu.args.phoneNumber}. You will receive a notification via SMS once the report is ready.`,
+			);
+		}),
+	});
+
+	menu.state('transaction-history.no-transactions', {
+		run: buildRunHandler(() => {
+			menu.end('You have not made any transactions yet.');
+		}),
+	});
+
+	menu.state('transaction-history.report-error', {
+		run: buildRunHandler(() => {
+			menu.end('An error occurred while sending your transaction history report. Please try again later.');
 		}),
 	});
 };
@@ -51,6 +71,10 @@ async function sendTransactionHistoryReport(env: Env, phoneNumber: string) {
 	const user = await getUserByPhoneNumber(env, phoneNumber);
 
 	const transactionHistory = await getTransactionHistory(env, user.id);
+
+	if (transactionHistory.length === 0) {
+		return 'transaction-history.no-transactions';
+	}
 
 	const message =
 		`Transaction History for ${user.phoneNumber}` +
@@ -70,4 +94,6 @@ async function sendTransactionHistoryReport(env: Env, phoneNumber: string) {
 		'Thank you for using tbDEX Go!';
 
 	await publishSMS(env, phoneNumber, message);
+
+	return 'transaction-history.report-sent';
 }
