@@ -9,7 +9,7 @@ import { desc, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { processClose, processOrder } from './helpers';
 
-interface SMSNotification {
+interface AfricasTalkingSMSNotification {
 	linkId: string;
 	text: string;
 	from: string;
@@ -17,24 +17,44 @@ interface SMSNotification {
 	date: string;
 }
 
-export async function handleSMSNotification(request: Request, env: Env): Promise<Response> {
+interface TwilioSMSNotification {
+	ToCountry: string;
+	ToState: string;
+	SmsMessageSid: string;
+	NumMedia: string;
+	ToCity: string;
+	FromZip: string;
+	SmsSid: string;
+	FromState: string;
+	SmsStatus: string;
+	FromCity: string;
+	Body: string;
+	FromCountry: string;
+	To: string;
+	ToZip: string;
+	NumSegments: string;
+	MessageSid: string;
+	AccountSid: string;
+	From: string;
+	ApiVersion: string;
+}
+
+export async function handleSMSNotification(request: Request, env: Env, provider: 'africasTalking' | 'twilio'): Promise<Response> {
 	const body = await request.formData();
-	const urlDecodedBody = Object.fromEntries(Array.from(body.entries()).map(([key, value]) => [key, decodeURIComponent(value.toString())]));
-	const jsonBody = urlDecodedBody as unknown as SMSNotification;
+	const formData = Object.fromEntries(body.entries());
+	const decodedData = Object.fromEntries(Object.entries(formData).map(([key, value]) => [key, decodeURIComponent(value.toString())]));
+	const notification = decodedData as unknown as AfricasTalkingSMSNotification | TwilioSMSNotification;
 
-	console.log('json body', jsonBody);
-
-	if (jsonBody.to !== env.AT_SHORTCODE) {
-		console.log('SMS Notification received for wrong shortcode', jsonBody);
-		return new Response('SMS Notification received', { status: 200 });
-	}
+	const isAfricasTalking = provider === 'africasTalking';
+	const from = isAfricasTalking ? (notification as AfricasTalkingSMSNotification).from : (notification as TwilioSMSNotification).From;
+	const text = isAfricasTalking ? (notification as AfricasTalkingSMSNotification).text : (notification as TwilioSMSNotification).Body;
 
 	const db = drizzle(env.DB);
 
-	const [user] = await db.select().from(users).where(eq(users.phoneNumber, jsonBody.from));
+	const [user] = await db.select().from(users).where(eq(users.phoneNumber, from));
 
 	if (!user) {
-		console.log('SMS Notification received for user that does not exist', jsonBody);
+		console.log('SMS Notification received for user that does not exist', notification);
 		return new Response('SMS Notification received', { status: 200 });
 	}
 
@@ -46,14 +66,14 @@ export async function handleSMSNotification(request: Request, env: Env): Promise
 		.limit(1);
 
 	if (!transaction) {
-		console.log('SMS Notification received for user with no transactions', jsonBody);
+		console.log('SMS Notification received for user with no transactions', notification);
 		return new Response('SMS Notification received', { status: 200 });
 	}
 
 	if (transaction.status === 'quote') {
-		await handleQuoteResponse(env, user, transaction, jsonBody.text);
+		await handleQuoteResponse(env, user, transaction, text);
 	} else if (transaction.status === 'complete') {
-		await handleRateTransactionResponse(env, user, transaction, jsonBody.text);
+		await handleRateTransactionResponse(env, user, transaction, text);
 	}
 
 	return new Response('SMS Notification received', { status: 200 });

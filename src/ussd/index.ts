@@ -11,6 +11,8 @@ export interface UssdRequest {
 }
 
 export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: ExecutionContext, provider: UssdMenuProvider) {
+	// @ts-expect-error We don't have the parsed args here so we need to get the phone number ourselves
+	const phoneNumber = provider === 'nalo' ? `+${request['MSISDN']}` : request.phoneNumber;
 	const menu = initializeUSSDMenu(env, provider);
 
 	// Register modules
@@ -21,9 +23,6 @@ export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: Exe
 		run: undefined,
 		next: {
 			'': async () => {
-				// @ts-expect-error We don't have the parsed args here so we need to get the phone number ourselves
-				const phoneNumber = provider === 'nalo' ? `+${request['MSISDN']}` : request.phoneNumber;
-
 				const user = await getUserByPhoneNumber(env, phoneNumber);
 
 				if (user) {
@@ -35,5 +34,12 @@ export async function handleUSSDRequest(request: UssdRequest, env: Env, ctx: Exe
 		},
 	});
 
-	return await menu.run(request as unknown as UssdMenu.UssdGatewayArgs);
+	ctx.waitUntil(
+		(async () => {
+			// Set current provider for the user in KV in the background
+			await env.session_store.put(`user.provider.${phoneNumber}`, provider);
+		})(),
+	);
+
+	return menu.run(request as unknown as UssdMenu.UssdGatewayArgs);
 }

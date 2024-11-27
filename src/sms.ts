@@ -3,7 +3,40 @@ import axios from 'axios';
 import { DbQuote, DbTransaction, DbUser } from './db/schema';
 import { formatDate, makeIDHumanReadable } from './utils';
 
-function initSMSClient(env: Env) {
+function twilioSend(env: Env) {
+	const token = btoa(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`);
+
+	return async (data: { to: string; message: string }) => {
+		try {
+			const response = await axios.post(
+				`https://api.twilio.com/2010-04-01/Accounts/${env.TWILIO_ACCOUNT_SID}/Messages.json`,
+				{
+					From: env.TWILIO_PHONE_NUMBER,
+					To: data.to,
+					Body: data.message,
+				},
+				{
+					headers: {
+						Authorization: `Basic ${token}`,
+						'content-type': 'application/x-www-form-urlencoded',
+					},
+				},
+			);
+
+			return response.data;
+		} catch (error) {
+			if (axios.isAxiosError(error)) {
+				console.error('Error sending SMS', error.response?.data);
+			} else {
+				console.error('Error sending SMS', error);
+			}
+
+			throw error;
+		}
+	};
+}
+
+function atSend(env: Env) {
 	const options = {
 		apiKey: env.AT_API_KEY,
 		username: env.AT_USERNAME,
@@ -21,38 +54,38 @@ function initSMSClient(env: Env) {
 		},
 	});
 
-	return {
-		send: async (data: { to: string; message: string }) => {
-			const requestData = {
-				username: options.username,
-				from: options.from,
-				...data,
-			};
+	return async (data: { to: string; message: string }) => {
+		const requestData = {
+			username: options.username,
+			from: options.from,
+			...data,
+		};
 
-			const response = await requestInstance.post('/version1/messaging', requestData);
-			return response.data;
-		},
+		const response = await requestInstance.post('/version1/messaging', requestData);
+		return response.data;
 	};
 }
 
-export async function publishSMS(env: Env, to: DbUser['phoneNumber'], message: string) {
-	const sms = initSMSClient(env);
+async function initSMSClient(env: Env, phoneNumber: string) {
+	const provider = await env.session_store.get(`user.provider.${phoneNumber}`);
 
-	return await sms.send({
+	if (provider && provider !== 'africasTalking') {
+		return twilioSend(env);
+	}
+
+	return atSend(env);
+}
+
+export async function publishSMS(env: Env, to: DbUser['phoneNumber'], message: string) {
+	const sendSms = await initSMSClient(env, to);
+
+	return await sendSms({
 		to,
 		message,
 	});
 }
 
-export async function publishQuoteNotificationSMS(
-	env: Env,
-	user: DbUser,
-	quote: DbQuote,
-	transaction: DbTransaction,
-	creditBalance: number,
-) {
-	const sms = initSMSClient(env);
-
+export function publishQuoteNotificationSMS(env: Env, user: DbUser, quote: DbQuote, transaction: DbTransaction, creditBalance: number) {
 	const fee = quote.fee ? Number(quote.fee) : 0;
 	const payinAmount = Number(quote.payinAmount) + fee;
 
@@ -71,21 +104,10 @@ export async function publishQuoteNotificationSMS(
 		`This transaction will cost you 1 credit. Your remaining balance is ${creditBalance} credits.`;
 	const to = user.phoneNumber;
 
-	return await sms.send({
-		to,
-		message,
-	});
+	return publishSMS(env, to, message);
 }
 
-export async function publishOrderNotificationSMS(
-	env: Env,
-	user: DbUser,
-	quote: DbQuote,
-	transaction: DbTransaction,
-	creditBalance: number,
-) {
-	const sms = initSMSClient(env);
-
+export function publishOrderNotificationSMS(env: Env, user: DbUser, quote: DbQuote, transaction: DbTransaction, creditBalance: number) {
 	const fee = quote.fee ? Number(quote.fee) : 0;
 	const payinAmount = Number(quote.payinAmount) + fee;
 
@@ -103,39 +125,24 @@ export async function publishOrderNotificationSMS(
 		`You will receive a notification when the transaction is completed.`;
 	const to = user.phoneNumber;
 
-	return await sms.send({
-		to,
-		message,
-	});
+	return publishSMS(env, to, message);
 }
 
-export async function publishCloseNotificationSMS(env: Env, user: DbUser, success: boolean, transaction: DbTransaction, reason?: string) {
-	const sms = initSMSClient(env);
-
+export function publishCloseNotificationSMS(env: Env, user: DbUser, success: boolean, transaction: DbTransaction, reason?: string) {
 	const message = `Your transaction with ID ${makeIDHumanReadable(transaction.id)} has been ${success ? 'completed' : 'cancelled'}${reason ? `: ${reason}` : ''}.`;
 	const to = user.phoneNumber;
 
-	return await sms.send({
-		to,
-		message,
-	});
+	return publishSMS(env, to, message);
 }
 
-export async function publishStatusUpdateNotificationSMS(env: Env, user: DbUser, transaction: DbTransaction, status: OrderStatus) {
-	const sms = initSMSClient(env);
-
+export function publishStatusUpdateNotificationSMS(env: Env, user: DbUser, transaction: DbTransaction, status: OrderStatus) {
 	const message = `Your transaction with ID ${makeIDHumanReadable(transaction.id)} has received a status update: "${status.data.orderStatus.replace(/_/g, ' ')}"`;
 	const to = user.phoneNumber;
 
-	return await sms.send({
-		to,
-		message,
-	});
+	return publishSMS(env, to, message);
 }
 
-export async function publishRateTransactionSMS(env: Env, user: DbUser, transaction: DbTransaction) {
-	const sms = initSMSClient(env);
-
+export function publishRateTransactionSMS(env: Env, user: DbUser, transaction: DbTransaction) {
 	const message =
 		`How was your experience using tbDEX Go for your transaction with ID ${makeIDHumanReadable(transaction.id)}? Reply 1, 2, 3, 4, or 5 to let us know.` +
 		`\n\n` +
@@ -151,8 +158,5 @@ export async function publishRateTransactionSMS(env: Env, user: DbUser, transact
 
 	const to = user.phoneNumber;
 
-	return await sms.send({
-		to,
-		message,
-	});
+	return publishSMS(env, to, message);
 }

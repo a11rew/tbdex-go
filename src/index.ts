@@ -17,7 +17,11 @@ export default {
 		const urlPath = url.pathname;
 
 		if (urlPath.startsWith('/sms-notification')) {
-			return await handleSMSNotification(request, env);
+			return await handleSMSNotification(request, env, 'africasTalking');
+		}
+
+		if (urlPath.startsWith('/twilio-sms-notification')) {
+			return await handleSMSNotification(request, env, 'twilio');
 		}
 
 		if (!request.body) {
@@ -36,9 +40,8 @@ export default {
 			provider,
 		);
 
-		console.log('response length', response.length);
 		if (response.length > 150) {
-			console.warn('Response is too long');
+			console.warn('Response is too long', response.length);
 			console.log('Only the following will be sent to the client:');
 			console.log(response.slice(4, 154));
 		}
