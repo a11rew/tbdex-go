@@ -610,8 +610,6 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 				const user = JSON.parse(serializedUser) as User;
 				const userCredentials = await getCustomerCredentials(env, user.id);
 
-				console.log('offering.data.requiredClaims', offering.data.requiredClaims);
-
 				// Validate user has required claims
 				const selectedCredentials = workerCompatiblePexSelect({
 					presentationDefinition: offering.data.requiredClaims,
@@ -781,9 +779,12 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 							`Thank you for using tbDEX Go!`,
 					);
 
-					const credential = await createCredential(userDID.uri, creatableCredentialId, claimCreationFormValues);
+					if (creatableCredentialId) {
+						const credential = await createCredential(userDID.uri, creatableCredentialId, claimCreationFormValues);
 
-					await saveCustomerCredential(env, user.id, credential);
+						await saveCustomerCredential(env, user.id, credential);
+					}
+
 					const userCredentials = await getCustomerCredentials(env, user.id);
 
 					const selectedCredentials = offering.data.requiredClaims
