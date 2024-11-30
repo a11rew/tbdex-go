@@ -55,7 +55,7 @@ export async function handleSMSNotification(request: Request, env: Env, provider
 
 	if (!user) {
 		console.log('SMS Notification received for user that does not exist', notification);
-		return new Response('SMS Notification received', { status: 200 });
+		return new Response(null, { status: 200 });
 	}
 
 	const [transaction] = await db
@@ -67,16 +67,18 @@ export async function handleSMSNotification(request: Request, env: Env, provider
 
 	if (!transaction) {
 		console.log('SMS Notification received for user with no transactions', notification);
-		return new Response('SMS Notification received', { status: 200 });
+		return new Response(null, { status: 200 });
 	}
 
 	if (transaction.status === 'quote') {
+		console.log('SMS Notification received for quote', transaction.id);
 		await handleQuoteResponse(env, user, transaction, text);
 	} else if (transaction.status === 'complete') {
+		console.log('SMS Notification received for complete', transaction.id);
 		await handleRateTransactionResponse(env, user, transaction, text);
 	}
 
-	return new Response('SMS Notification received', { status: 200 });
+	return new Response(null, { status: 200 });
 }
 
 async function handleQuoteResponse(env: Env, user: DbUser, transaction: DbTransaction, message: string) {
@@ -101,7 +103,7 @@ async function handleQuoteResponse(env: Env, user: DbUser, transaction: DbTransa
 	const userPortableDID = JSON.parse(user.did) as PortableDid;
 	const userBearerDID = await resolveDID(env, userPortableDID);
 
-	console.log('SMS Notification received', message);
+	console.log(null, message);
 
 	switch (message) {
 		case '1':
