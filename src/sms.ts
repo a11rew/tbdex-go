@@ -79,6 +79,8 @@ async function initSMSClient(env: Env, phoneNumber: string) {
 export async function publishSMS(env: Env, to: DbUser['phoneNumber'], message: string) {
 	const sendSms = await initSMSClient(env, to);
 
+	console.log('Publishing SMS to', to, message);
+
 	return await sendSms({
 		to,
 		message,

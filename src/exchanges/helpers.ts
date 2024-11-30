@@ -35,6 +35,8 @@ export async function processQuote(env: Env, user: DbUser, transaction: DbTransa
 		fetchGoCreditBalance(db, user.id),
 	]);
 
+	console.log('Received and processed quote for tx', transaction.id);
+
 	await publishQuoteNotificationSMS(env, user, writtenQuote, updatedTransaction, creditBalance.balance);
 
 	if (new Date(quote.data.expiresAt) < new Date()) {
@@ -62,6 +64,8 @@ export async function processOrder(env: Env, user: DbUser, transaction: DbTransa
 
 	const [updatedTransaction, latestQuote] = await Promise.all([fetchTransaction(db, transaction.id), fetchLatestQuote(db, transaction.id)]);
 
+	console.log('Received and processed order for tx', transaction.id);
+
 	// We only publish the order notification if the transaction status has actually changed
 	// This is to prevent duplicate notifications
 	if (transaction.status !== updatedTransaction.status) {
@@ -81,6 +85,8 @@ export async function processClose(env: Env, user: DbUser, transaction: DbTransa
 
 	await updateTransactionStatus(db, transaction.id, isCancelled ? 'cancelled' : 'complete');
 	const updatedTransaction = await fetchTransaction(db, transaction.id);
+
+	console.log('Received and processed close for tx', transaction.id);
 
 	// We only publish the close notification if the transaction status has actually changed
 	// This is to prevent duplicate notifications
@@ -116,6 +122,8 @@ export async function processOrderStatusUpdate(
 		const existingNotification = await fetchNotification(db, id);
 
 		if (existingNotification) return;
+
+		console.log('Received and processed status update for tx', transaction.id);
 
 		await publishStatusUpdateNotificationSMS(env, user, transaction, update);
 
