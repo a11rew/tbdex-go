@@ -5,6 +5,7 @@ import {
 	fetchNotification,
 	fetchQuote,
 	fetchTransaction,
+	insertGoWalletTransaction,
 	insertNotification,
 	insertQuote,
 	updateTransactionStatus,
@@ -37,7 +38,14 @@ export async function processQuote(env: Env, user: DbUser, transaction: DbTransa
 
 	console.log('Received and processed quote for tx', transaction.id);
 
-	await publishQuoteNotificationSMS(env, user, writtenQuote, updatedTransaction, creditBalance.balance);
+	await publishQuoteNotificationSMS(
+		env,
+		user,
+		writtenQuote,
+		updatedTransaction,
+		// Don't show the credit balance for Go Wallet transactions
+		updatedTransaction.type === 'regular' ? creditBalance.balance : null,
+	);
 
 	if (new Date(quote.data.expiresAt) < new Date()) {
 		await updateTransactionStatus(db, transaction.id, 'cancelled');
@@ -51,7 +59,7 @@ export async function processOrder(env: Env, user: DbUser, transaction: DbTransa
 
 	const creditBalance = await fetchGoCreditBalance(db, user.id);
 
-	if (creditBalance.balance < 1) {
+	if (creditBalance.balance < 1 && transaction.type === 'regular') {
 		await updateTransactionStatus(db, transaction.id, 'cancelled');
 		await publishCloseNotificationSMS(env, user, false, transaction, 'Insufficient Go Credit balance');
 		return;
@@ -59,8 +67,10 @@ export async function processOrder(env: Env, user: DbUser, transaction: DbTransa
 
 	await updateTransactionStatus(db, transaction.id, 'order');
 
-	// Decrement the user's Go Credit balance
-	await addGoCreditTransaction(db, user.id, -1, `Order placed: ${transaction.id}`);
+	if (transaction.type === 'regular') {
+		// Decrement the user's Go Credit balance
+		await addGoCreditTransaction(db, user.id, -1, `Order placed: ${transaction.id}`);
+	}
 
 	const [updatedTransaction, latestQuote] = await Promise.all([fetchTransaction(db, transaction.id), fetchLatestQuote(db, transaction.id)]);
 
@@ -70,28 +80,56 @@ export async function processOrder(env: Env, user: DbUser, transaction: DbTransa
 	// This is to prevent duplicate notifications
 	if (transaction.status !== updatedTransaction.status) {
 		const newGoCreditBalance = await fetchGoCreditBalance(db, user.id);
-		await publishOrderNotificationSMS(env, user, latestQuote, updatedTransaction, newGoCreditBalance.balance);
+		await publishOrderNotificationSMS(
+			env,
+			user,
+			latestQuote,
+			updatedTransaction,
+			updatedTransaction.type === 'regular' ? newGoCreditBalance.balance : null,
+		);
 	}
 }
 
-export async function processClose(env: Env, user: DbUser, transaction: DbTransaction, closes: Close | Close[]) {
+export async function processClose(env: Env, user: DbUser, transaction: DbTransaction, closes: Close | Close[], quotes: Quote | Quote[]) {
 	if (!closes || (Array.isArray(closes) && closes.length === 0) || (transaction.status !== 'order' && transaction.status !== 'quote'))
 		return;
 
 	const db = drizzle(env.DB);
 
 	const close = Array.isArray(closes) ? closes[0] : closes;
+	const quote = Array.isArray(quotes)
+		? quotes.sort((a, b) => new Date(a.metadata.createdAt).getTime() - new Date(b.metadata.createdAt).getTime())[0]
+		: quotes;
 	const isCancelled = close.data.success === false;
 
 	await updateTransactionStatus(db, transaction.id, isCancelled ? 'cancelled' : 'complete');
 	const updatedTransaction = await fetchTransaction(db, transaction.id);
+
+	if (!isCancelled && ['wallet-in', 'wallet-out'].includes(updatedTransaction.type)) {
+		// Create the Go wallet transaction
+		await insertGoWalletTransaction(db, user.id, {
+			sourceTransactionId: transaction.id,
+			pfiDid: transaction.pfiDid,
+			currencyCode: transaction.type === 'wallet-in' ? quote.data.payout.currencyCode : quote.data.payin.currencyCode,
+			amount: Number(transaction.type === 'wallet-in' ? quote.data.payout.amount : quote.data.payin.amount),
+			reference: `Order completed: ${transaction.id}`,
+		});
+	}
 
 	console.log('Received and processed close for tx', transaction.id);
 
 	// We only publish the close notification if the transaction status has actually changed
 	// This is to prevent duplicate notifications
 	if (transaction.status !== updatedTransaction.status) {
-		await publishCloseNotificationSMS(env, user, !isCancelled, updatedTransaction);
+		await publishCloseNotificationSMS(
+			env,
+			user,
+			!isCancelled,
+			updatedTransaction,
+			!isCancelled && updatedTransaction.type !== 'regular'
+				? `${updatedTransaction.type === 'wallet-in' ? 'Credited' : 'Debited'} your Go Wallet`
+				: undefined,
+		);
 
 		// Ask them to rate the transaction
 		if (updatedTransaction.status === 'complete') {

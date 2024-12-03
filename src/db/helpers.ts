@@ -7,6 +7,7 @@ import {
 	DbUser,
 	go_credit_balance_view,
 	go_credit_transactions,
+	go_wallet_transactions,
 	notifications,
 	quotes,
 	transactions,
@@ -62,4 +63,31 @@ export async function fetchGoCreditBalance(db: DrizzleD1Database, userId: string
 
 export async function addGoCreditTransaction(db: DrizzleD1Database, userId: string, amount: number, reference: string) {
 	await db.insert(go_credit_transactions).values({ user_id: userId, amount, reference });
+}
+
+export async function insertGoWalletTransaction(
+	db: DrizzleD1Database,
+	userId: string,
+	{
+		sourceTransactionId,
+		pfiDid,
+		currencyCode,
+		amount,
+		reference,
+	}: {
+		sourceTransactionId: string;
+		pfiDid: string;
+		currencyCode: string;
+		amount: number;
+		reference: string;
+	},
+) {
+	await db.insert(go_wallet_transactions).values({
+		user_id: userId,
+		source_transaction_id: sourceTransactionId,
+		pfi_did: pfiDid,
+		currency_code: currencyCode,
+		amount,
+		reference,
+	});
 }

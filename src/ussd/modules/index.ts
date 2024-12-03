@@ -2,6 +2,7 @@ import UssdMenu from 'ussd-builder';
 
 import { getUserByPhoneNumber, registerUser } from '@/user';
 import { buildRunHandler } from '../builders';
+import goWalletModule from './go-wallet';
 import helpModule from './help';
 import profileModule from './profile';
 import sendMoneyModule from './send-money';
@@ -15,7 +16,14 @@ export type UssdModule = {
 	nextHandler?: (menu: UssdMenu, env: Env, ctx: ExecutionContext) => string | Promise<string>;
 };
 
-const modules = [sendMoneyModule, profileModule, transactionHistoryModule, transactionCreditsModule, helpModule] satisfies UssdModule[];
+const modules = [
+	sendMoneyModule,
+	goWalletModule,
+	profileModule,
+	transactionHistoryModule,
+	transactionCreditsModule,
+	helpModule,
+] satisfies UssdModule[];
 
 export async function registerModules(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 	modules.forEach((module) => {
@@ -24,25 +32,9 @@ export async function registerModules(menu: UssdMenu, env: Env, ctx: ExecutionCo
 
 	menu.state('user.registered', {
 		run: buildRunHandler(() => {
-			menu.con(
-				'Welcome to tbDEX Go\n\n' +
-					'Choose an option below to continue\n' +
-					`1. ${sendMoneyModule.description}\n` +
-					`2. ${profileModule.description}\n` +
-					`3. ${transactionHistoryModule.description}\n` +
-					`4. ${transactionCreditsModule.description}\n` +
-					`5. ${helpModule.description}\n\n` +
-					`#. Exit`,
-			);
+			menu.con('Welcome to tbDEX Go\n\n' + modules.map((module, index) => `${index + 1}. ${module.description}\n`).join(''));
 		}),
-		next: {
-			1: sendMoneyModule.id,
-			2: profileModule.id,
-			3: transactionHistoryModule.id,
-			4: transactionCreditsModule.id,
-			5: helpModule.id,
-			'#': '__exit__',
-		},
+		next: Object.fromEntries(modules.map((module, index) => [index + 1, module.id])),
 	});
 
 	menu.state('user.not_registered', {

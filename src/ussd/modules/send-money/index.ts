@@ -22,7 +22,7 @@ export default {
 	handler: sendMoneyHandler,
 } satisfies UssdModule;
 
-function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
+function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type: 'regular' | 'wallet-in' | 'wallet-out' = 'regular') {
 	menu.state(stateId, {
 		run: buildRunHandler(async () => {
 			// Count the number of occurrences of '*0' in the text
@@ -43,10 +43,13 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 
 			const hasMorePages = Object.keys(offeringsByPayoutCurrencyCode).length > endIndex;
 
+			const title = type === 'wallet-in' ? 'What currency do you want to add to your wallet?' : 'Where do you want to send money to?';
+
 			// Show user available payout currencies
 			buildContinueResponse(
 				menu,
-				'Where do you want to send money to?\n\n' +
+				title +
+					'\n\n' +
 					paginatedOfferingKeys
 						.map(
 							(key) =>
@@ -114,9 +117,11 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 			// Write offerings to session
 			await menu.session.set('offeringsByPayinCurrencyCode', JSON.stringify(offeringsByPayinCurrencyCode));
 
+			const title = type === 'wallet-in' ? 'What currency do you currently have?' : 'Where are you sending money from?';
+
 			buildContinueResponse(
 				menu,
-				'Where are you sending money from?' +
+				title +
 					'\n\n' +
 					Object.keys(offeringsByPayinCurrencyCode)
 						.map((key, index) => `${index + 1}. ${key}` + (currencyDescriptions[key] ? ` (${currencyDescriptions[key]})` : ''))
@@ -172,9 +177,14 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 				// Write offerings to session
 				await menu.session.set('offerings', JSON.stringify(offerings));
 
+				const title =
+					type === 'wallet-in'
+						? `You are adding ${payoutCurrencyCode} to your wallet.`
+						: `You are sending money from ${payinCurrencyCode} to ${payoutCurrencyCode}.`;
+
 				buildContinueResponse(
 					menu,
-					`You are sending ${payinCurrencyCode} to ${payoutCurrencyCode}.\n` +
+					`${title}\n` +
 						'Choose an offering to proceed:\n' +
 						'\n' +
 						offerings.map((offering, index) => generateOfferingDescription(offering, index)).join('\n'),
@@ -217,6 +227,11 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 					}
 
 					if (chosenOffering.data.payout.methods.length > 1) {
+						if (type === 'wallet-in') {
+							// Jump to specifying amount
+							return `${stateId}.specifyAmount`;
+						}
+
 						return `${stateId}.choosePayoutMethod`;
 					}
 
@@ -226,6 +241,11 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 					await menu.session.set('chosenPayoutMethod', JSON.stringify(chosenPayoutMethod));
 
 					if (chosenPayoutMethod.requiredPaymentDetails && Object.keys(chosenPayoutMethod.requiredPaymentDetails).length > 0) {
+						if (type === 'wallet-in') {
+							// Jump to specifying amount
+							return `${stateId}.specifyAmount`;
+						}
+
 						return `${stateId}.specifyPayoutMethodDetails`;
 					}
 
@@ -270,6 +290,11 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 
 					if (chosenPayinMethod.requiredPaymentDetails && Object.keys(chosenPayinMethod.requiredPaymentDetails).length > 0) {
 						return `${stateId}.specifyPayinMethodDetails`;
+					}
+
+					if (type === 'wallet-in') {
+						// Jump to specifying amount
+						return `${stateId}.specifyAmount`;
 					}
 
 					return `${stateId}.choosePayoutMethod`;
@@ -367,6 +392,11 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 							}
 						}
 
+						if (type === 'wallet-in') {
+							// Jump to specifying amount
+							return `${stateId}.specifyAmount`;
+						}
+
 						return `${stateId}.choosePayoutMethod`;
 					});
 
@@ -390,6 +420,11 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 					} else {
 						await sessionErrors.clear(menu);
 					}
+				}
+
+				if (type === 'wallet-in') {
+					// Jump to specifying amount
+					return `${stateId}.specifyAmount`;
 				}
 
 				return `${stateId}.choosePayoutMethod`;
@@ -560,13 +595,15 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 			const error = await menu.session.get('specifyAmount.error');
 			const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 
+			const cta = type === 'wallet-in' ? 'add' : 'send';
+
 			return await buildContinueResponse(
 				menu,
 				[
 					error && error + '\n',
-					`Enter the amount you want to send in ${offering.data.payin.currencyCode}.`,
-					offering.data.payin.min && `The minimum amount you can send is ${offering.data.payin.min} ${offering.data.payin.currencyCode}.`,
-					offering.data.payin.max && `The maximum amount you can send is ${offering.data.payin.max} ${offering.data.payin.currencyCode}.`,
+					`Enter the amount you want to ${cta} in ${offering.data.payin.currencyCode}.`,
+					offering.data.payin.min && `The minimum amount you can ${cta} is ${offering.data.payin.min} ${offering.data.payin.currencyCode}.`,
+					offering.data.payin.max && `The maximum amount you can ${cta} is ${offering.data.payin.max} ${offering.data.payin.currencyCode}.`,
 				]
 					.filter(Boolean)
 					.join('\n'),
@@ -656,6 +693,7 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 			const knownCredential = KnownVcs.find((knownCredential) => knownCredential.id === creatableCredential.id)!;
 
 			const claimCreationFormKey = 'claimCreationForm';
+			await menu.session.set('claimCreationFormKey', claimCreationFormKey);
 			await menu.session.set(claimCreationFormKey, {});
 			await menu.session.set('creatableCredentialId', creatableCredential.id);
 			await menu.session.set('claimCreationFormFirstValueKey', Object.keys(knownCredential.schema.shape)[0]);
@@ -749,15 +787,15 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 			] = await Promise.all([
 				menu.session.get('payinAmount'),
 				JSON.parse(await menu.session.get('chosenOffering')) as Offering,
-				JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod,
-				JSON.parse(await menu.session.get('chosenPayinMethod')) as PayinMethod,
+				JSON.parse(await menu.session.get('chosenPayoutMethod')) as PayoutMethod | null,
+				JSON.parse(await menu.session.get('chosenPayinMethod')) as PayinMethod | null,
 				JSON.parse(await menu.session.get(claimCreationFormKey)) as Record<string, string>,
 				payinMethodDetailsString ? (JSON.parse(payinMethodDetailsString) as Record<string, string>) : undefined,
 				payoutMethodDetailsString ? (JSON.parse(payoutMethodDetailsString) as Record<string, string>) : undefined,
 				fetchGoCreditBalance(db, user.id),
 			]);
 
-			if (creditBalance.balance < 1) {
+			if (type === 'regular' && creditBalance.balance < 1) {
 				return menu.end(
 					'You do not have enough transaction credits to perform this transaction.\n\nPlease buy more transaction credits to continue.',
 				);
@@ -767,79 +805,130 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext) {
 			// and USSD sessions have a short timeout
 			ctx.waitUntil(
 				(async () => {
-					await publishSMS(
-						env,
-						user.phoneNumber,
-						`You have requested a quote for the conversion of ${amount} ${offering.data.payin.currencyCode} to ${offering.data.payout.currencyCode}` +
-							'\n\n' +
-							`The PFI is reviewing your request. You will receive a notification via SMS once the PFI responds with a quote.` +
-							'\n\n' +
-							`This transaction will cost you 1 credit if you accept the quote.` +
-							'\n\n' +
-							`Thank you for using tbDEX Go!`,
-					);
+					try {
+						if (creatableCredentialId) {
+							const credential = await createCredential(userDID.uri, creatableCredentialId, claimCreationFormValues);
 
-					if (creatableCredentialId) {
-						const credential = await createCredential(userDID.uri, creatableCredentialId, claimCreationFormValues);
+							await saveCustomerCredential(env, user.id, credential);
+						}
 
-						await saveCustomerCredential(env, user.id, credential);
+						const userCredentials = await getCustomerCredentials(env, user.id);
+
+						const selectedCredentials = offering.data.requiredClaims
+							? workerCompatiblePexSelect({
+									presentationDefinition: offering.data.requiredClaims,
+									vcJwts: userCredentials,
+								})
+							: [];
+
+						const payoutMethod = chosenPayoutMethod ?? offering.data.payout.methods[0];
+						const payoutDetails = {
+							amount: amount.toString(),
+							currency: offering.data.payout.currencyCode,
+							kind:
+								type === 'wallet-in'
+									? // Simulate stored balance transaction for wallet-in
+										(payoutMethod.kind ?? 'STORED_BALANCE')
+									: chosenPayoutMethod!.kind,
+							paymentDetails:
+								type === 'wallet-in'
+									? (payoutMethodDetails ??
+										// These wouldn't be required in an actual stored balance transaction,
+										// we'll simulate it by sending dummy values
+										Object.fromEntries(
+											(typeof payoutMethod.requiredPaymentDetails === 'object' && 'required' in payoutMethod.requiredPaymentDetails
+												? payoutMethod.requiredPaymentDetails.required
+												: []
+											).map((key: string) => [key, 'STORED_BALANCE']),
+										))
+									: payoutMethodDetails,
+						};
+
+						const payinMethod = chosenPayinMethod ?? offering.data.payin.methods[0];
+						const payinDetails = {
+							amount: amount.toString(),
+							currency: offering.data.payin.currencyCode,
+							kind:
+								type === 'wallet-in'
+									? // Simulate stored balance transaction for wallet-in
+										(payinMethod.kind ?? 'STORED_BALANCE')
+									: chosenPayinMethod!.kind,
+							paymentDetails:
+								type === 'wallet-in'
+									? // Simulate stored balance transaction for wallet-in
+										(payinMethodDetails ??
+										// These wouldn't be required in an actual stored balance transaction,
+										// we'll simulate it by sending dummy values
+										Object.fromEntries(
+											(typeof payinMethod.requiredPaymentDetails === 'object' && 'required' in payinMethod.requiredPaymentDetails
+												? payinMethod.requiredPaymentDetails.required
+												: []
+											).map((key: string) => [key, 'STORED_BALANCE']),
+										))
+									: payinMethodDetails,
+						};
+
+						const rfq = Rfq.create({
+							metadata: {
+								from: userDID.uri,
+								to: offering.metadata.from,
+								protocol: '1.0',
+							},
+							data: {
+								offeringId: offering.metadata.id,
+								payin: payinDetails,
+								payout: payoutDetails,
+								claims: selectedCredentials,
+							},
+						});
+
+						const userBearerDid = await resolveDID(env, userDID);
+						await rfq.sign(userBearerDid);
+
+						await TbdexHttpClient.createExchange(rfq);
+
+						await db.insert(transactions).values({
+							amount: amount.toString(),
+							status: 'pending',
+							user_id: user.id,
+							type,
+							pfiDid: offering.metadata.from,
+							exchangeId: rfq.metadata.exchangeId,
+							offeringId: rfq.data.offeringId,
+							payinKind: rfq.data.payin.kind,
+							payoutKind: rfq.data.payout.kind,
+							createdAt: rfq.metadata.createdAt,
+						});
+
+						await publishSMS(
+							env,
+							user.phoneNumber,
+							`You have requested a quote for the conversion of ${amount} ${offering.data.payin.currencyCode} to ${offering.data.payout.currencyCode}` +
+								'\n\n' +
+								`The PFI is reviewing your request. You will receive a notification via SMS once the PFI responds with a quote.` +
+								'\n\n' +
+								`This transaction will cost you 1 credit if you accept the quote.` +
+								'\n\n' +
+								`Thank you for using tbDEX Go!`,
+						);
+					} catch (error) {
+						console.error('Error in requestQuote', error);
+
+						if (typeof error === 'object' && error !== null && 'details' in error) {
+							console.error('Error details', JSON.stringify(error.details, null, 2));
+						}
+
+						throw error;
 					}
-
-					const userCredentials = await getCustomerCredentials(env, user.id);
-
-					const selectedCredentials = offering.data.requiredClaims
-						? workerCompatiblePexSelect({
-								presentationDefinition: offering.data.requiredClaims,
-								vcJwts: userCredentials,
-							})
-						: [];
-
-					const rfq = Rfq.create({
-						metadata: {
-							from: userDID.uri,
-							to: offering.metadata.from,
-							protocol: '1.0',
-						},
-						data: {
-							offeringId: offering.metadata.id,
-							payin: {
-								amount: amount.toString(),
-								kind: chosenPayinMethod.kind,
-								paymentDetails: payinMethodDetails ?? {},
-							},
-							payout: {
-								kind: chosenPayoutMethod.kind,
-								paymentDetails: payoutMethodDetails ?? {},
-							},
-							claims: selectedCredentials,
-						},
-					});
-
-					const userBearerDid = await resolveDID(env, userDID);
-					await rfq.sign(userBearerDid);
-
-					await TbdexHttpClient.createExchange(rfq);
-					await db.insert(transactions).values({
-						amount: amount.toString(),
-						status: 'pending',
-						user_id: user.id,
-						pfiDid: offering.metadata.from,
-						exchangeId: rfq.metadata.exchangeId,
-						offeringId: rfq.data.offeringId,
-						payinKind: rfq.data.payin.kind,
-						payoutKind: rfq.data.payout.kind,
-						createdAt: rfq.metadata.createdAt,
-					});
 				})(),
 			);
 
-			menu.end(
-				"You're almost there!" +
-					'\n\n' +
-					`You have requested a quote for the conversion of ${amount} ${offering.data.payin.currencyCode} to ${offering.data.payout.currencyCode}` +
-					'\n\n' +
-					`You will receive further instructions via SMS.`,
-			);
+			const message =
+				type === 'regular'
+					? `You have requested a quote for the conversion of ${amount} ${offering.data.payin.currencyCode} to ${offering.data.payout.currencyCode}`
+					: `You are adding the ${offering.data.payout.currencyCode} equivalent of ${amount} ${offering.data.payin.currencyCode} to your wallet.`;
+
+			menu.end("You're almost there!" + '\n\n' + message + '\n\n' + `You will receive further instructions via SMS.`);
 		}),
 	});
 

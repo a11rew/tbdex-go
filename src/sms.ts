@@ -87,7 +87,13 @@ export async function publishSMS(env: Env, to: DbUser['phoneNumber'], message: s
 	});
 }
 
-export function publishQuoteNotificationSMS(env: Env, user: DbUser, quote: DbQuote, transaction: DbTransaction, creditBalance: number) {
+export function publishQuoteNotificationSMS(
+	env: Env,
+	user: DbUser,
+	quote: DbQuote,
+	transaction: DbTransaction,
+	creditBalance: number | null,
+) {
 	const fee = quote.fee ? Number(quote.fee) : 0;
 	const payinAmount = Number(quote.payinAmount) + fee;
 
@@ -102,14 +108,20 @@ export function publishQuoteNotificationSMS(env: Env, user: DbUser, quote: DbQuo
 		(quote.expiresAt ? `\nExpires at: ${formatDate(quote.expiresAt)}` : '') +
 		`\n\n` +
 		`Reply with "1" to accept this quote and place an order. Reply with "0" to reject the quote.` +
-		`\n\n` +
-		`This transaction will cost you 1 credit. Your remaining balance is ${creditBalance} credits.`;
+		(creditBalance ? `\n\nThis transaction will cost you 1 credit. Your remaining balance is ${creditBalance} credits.` : '');
+
 	const to = user.phoneNumber;
 
 	return publishSMS(env, to, message);
 }
 
-export function publishOrderNotificationSMS(env: Env, user: DbUser, quote: DbQuote, transaction: DbTransaction, creditBalance: number) {
+export function publishOrderNotificationSMS(
+	env: Env,
+	user: DbUser,
+	quote: DbQuote,
+	transaction: DbTransaction,
+	creditBalance: number | null,
+) {
 	const fee = quote.fee ? Number(quote.fee) : 0;
 	const payinAmount = Number(quote.payinAmount) + fee;
 
@@ -122,8 +134,7 @@ export function publishOrderNotificationSMS(env: Env, user: DbUser, quote: DbQuo
 		`\n` +
 		`Fee: ${fee} ${quote.payinCurrency}` +
 		`\n\n` +
-		`This transaction cost you 1 credit. Your remaining Go Credit balance is ${creditBalance} credits.` +
-		`\n\n` +
+		(creditBalance ? `This transaction cost you 1 credit. Your remaining Go Credit balance is ${creditBalance} credits.\n\n` : '') +
 		`You will receive a notification when the transaction is completed.`;
 	const to = user.phoneNumber;
 

@@ -44,6 +44,11 @@ export const transactions = sqliteTable('transactions', {
 	status: text('status', {
 		enum: ['pending', 'quote', 'order', 'cancelled', 'complete'],
 	}).notNull(),
+	type: text('type', {
+		enum: ['regular', 'wallet-in', 'wallet-out'],
+	})
+		.default('regular')
+		.notNull(),
 	payinKind: text('payin_kind').notNull(),
 	payoutKind: text('payout_kind').notNull(),
 	createdAt: text('created_at')
@@ -135,3 +140,23 @@ export const ratings = sqliteTable('ratings', {
 		.default(sql`(current_timestamp)`),
 });
 export type DbRating = typeof ratings.$inferSelect;
+
+export const go_wallet_transactions = sqliteTable('go_wallet_transactions', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => `go_wallet_transaction_${createId()}`),
+	user_id: text('user_id')
+		.references(() => users.id)
+		.notNull(),
+	source_transaction_id: text('source_transaction_id')
+		.references(() => transactions.id)
+		.notNull(),
+	pfi_did: text('pfi_did').notNull(),
+	currency_code: text('currency_code').notNull(),
+	amount: integer('amount').notNull(),
+	reference: text('reference'),
+	created_at: text('created_at')
+		.notNull()
+		.default(sql`(current_timestamp)`),
+});
+export type DbGoWalletTransaction = typeof go_wallet_transactions.$inferSelect;

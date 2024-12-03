@@ -134,7 +134,7 @@ async function processExchanges(
 			await processQuote(env, user, transaction, exchangeMap.quotes);
 			await processOrder(env, user, transaction, exchangeMap.orders);
 			await processOrderStatusUpdate(env, user, transaction, exchangeMap.statusUpdates);
-			await processClose(env, user, transaction, exchangeMap.closes);
+			await processClose(env, user, transaction, exchangeMap.closes, exchangeMap.quotes);
 		}),
 	);
 }
