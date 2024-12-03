@@ -7,6 +7,7 @@ import {
 	DbUser,
 	go_credit_balance_view,
 	go_credit_transactions,
+	go_wallet_balance_view,
 	go_wallet_transactions,
 	notifications,
 	quotes,
@@ -90,4 +91,9 @@ export async function insertGoWalletTransaction(
 		amount,
 		reference,
 	});
+}
+
+export async function fetchGoWalletBalances(db: DrizzleD1Database, userId: string) {
+	const balances = await db.select().from(go_wallet_balance_view).where(eq(go_wallet_balance_view.user_id, userId));
+	return balances;
 }

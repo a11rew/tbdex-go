@@ -160,3 +160,11 @@ export const go_wallet_transactions = sqliteTable('go_wallet_transactions', {
 		.default(sql`(current_timestamp)`),
 });
 export type DbGoWalletTransaction = typeof go_wallet_transactions.$inferSelect;
+
+export const go_wallet_balance_view = sqliteView('go_wallet_balance_view', {
+	user_id: text('user_id')
+		.references(() => users.id)
+		.notNull(),
+	currency_code: text('currency_code').notNull(),
+	balance: integer('balance').notNull(),
+}).existing();

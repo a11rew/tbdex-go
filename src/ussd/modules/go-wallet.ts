@@ -1,3 +1,4 @@
+import { fetchGoWalletBalances } from '@/db/helpers';
 import { credentials, DbUser } from '@/db/schema';
 import { PortableDid } from '@web5/dids';
 import { eq } from 'drizzle-orm';
@@ -63,13 +64,25 @@ const handler: UssdModule['handler'] = (menu, env, ctx) => {
 
 	menu.state(`${stateId}.view-wallet-balance`, {
 		run: buildRunHandler(async () => {
+			const db = drizzle(env.DB);
+
+			const serializedUser = await menu.session.get('user');
+
+			if (!serializedUser) {
+				return menu.end('You are not registered. Please register to access this feature.');
+			}
+
+			const user = JSON.parse(serializedUser) as DbUser;
+
+			const balances = await fetchGoWalletBalances(db, user.id);
+
 			buildContinueResponse(
 				menu,
-				'Add or Update Payment Methods' +
+				'Your Go Wallet Balances' +
 					'\n\n' +
-					'PFIs choose which payment methods you can use, but adding payment options beforehand will allow you to complete transactions faster. We will ask you for common payment methods and automatically provide them to PFIs where applicable.' +
-					'\n\n' +
-					'Support for this feature is coming soon.',
+					(balances.length > 0
+						? balances.map((balance) => `${balance.currency_code}: ${balance.balance}`).join('\n')
+						: 'You have no currency balances in your Go Wallet. Add money to get started.'),
 				{
 					back: true,
 					exit: true,
@@ -77,14 +90,14 @@ const handler: UssdModule['handler'] = (menu, env, ctx) => {
 			);
 		}),
 		next: {
-			'0': 'profile',
+			'0': stateId,
 			'#': '__exit__',
 		},
 	});
 };
 
 export default {
-	id: 'go-wallet',
+	id: stateId,
 	description: 'Go Wallet',
 	handler,
 } satisfies UssdModule;
