@@ -844,15 +844,15 @@ export function sendMoneyHandler(
 				const min = offering.data.payin.min;
 
 				// Validate payin amount
-				const payinAmountBigInt = BigInt(payinAmount);
-				if (payinAmountBigInt < BigInt(min ?? 0)) {
+				const payinAmountInt = Number(payinAmount);
+				if (payinAmountInt < Number(min ?? 0)) {
 					await sessionErrors.set(menu, 'The amount you entered is below the minimum allowed. Please try again.');
 					return `${stateId}.specifyAmount`;
 				} else {
 					await sessionErrors.clear(menu);
 				}
 
-				if (max && payinAmountBigInt > BigInt(max)) {
+				if (max && payinAmountInt > Number(max)) {
 					await sessionErrors.set(menu, 'The amount you entered is above the maximum allowed. Please try again.');
 					return `${stateId}.specifyAmount`;
 				} else {
