@@ -62,6 +62,9 @@ export function sendMoneyHandler(
 
 				// We only support adding funds for currencies that can be used as payin methods
 				optionKeys = Object.keys(offeringsByPayinCurrencyCode).filter((code) => offeringsByPayinCurrencyCode[code].length > 0);
+
+				// We only support adding funds for currencies that can be used as payouts
+				optionKeys = optionKeys.filter((code) => offeringsByPayoutCurrencyCode[code] && offeringsByPayoutCurrencyCode[code].length > 0);
 			}
 
 			await menu.session.set(`${stateId}.optionKeys`, optionKeys);
@@ -256,8 +259,15 @@ export function sendMoneyHandler(
 				Offering[]
 			>;
 
+			console.log('offeringsByPayoutCurrencyCode', offeringsByPayoutCurrencyCode);
+
 			// Fetch offerings that support the selected payout currency code
 			const offerings = offeringsByPayoutCurrencyCode[payoutCurrencyCode];
+
+			console.log('offeringsByPayoutCurrencyCode', offeringsByPayoutCurrencyCode);
+			console.log('offerings', offerings);
+			console.log('type', type);
+			console.log('payoutCurrencyCode', payoutCurrencyCode);
 
 			// Group offerings by payin currency code
 			const offeringsByPayinCurrencyCode =
