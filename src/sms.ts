@@ -102,7 +102,7 @@ export function publishQuoteNotificationSMS(
 		`\n\n` +
 		`You will pay: ${payinAmount} ${quote.payinCurrency} (includes fee)` +
 		`\n` +
-		`You will receive: ${quote.payoutAmount} ${quote.payoutCurrency}` +
+		`${transaction.type === 'wallet-out' ? 'Your recipient will receive:' : 'You will receive:'} ${quote.payoutAmount} ${quote.payoutCurrency}` +
 		`\n` +
 		`Fee: ${fee} ${quote.payinCurrency}` +
 		(quote.expiresAt ? `\nExpires at: ${formatDate(quote.expiresAt)}` : '') +
@@ -130,7 +130,7 @@ export function publishOrderNotificationSMS(
 		`\n\n` +
 		`You will pay: ${payinAmount} ${quote.payinCurrency} (includes fee)` +
 		`\n` +
-		`You will receive: ${quote.payoutAmount} ${quote.payoutCurrency}` +
+		`${transaction.type === 'wallet-out' ? 'Your recipient will receive:' : 'You will receive:'} ${quote.payoutAmount} ${quote.payoutCurrency}` +
 		`\n` +
 		`Fee: ${fee} ${quote.payinCurrency}` +
 		`\n\n` +

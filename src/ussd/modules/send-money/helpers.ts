@@ -32,6 +32,33 @@ export async function getOfferingsByPayoutCurrencyCode(env: Env, menu: UssdMenu)
 	return offeringsByPayoutCurrencyCode;
 }
 
+export async function getOfferingsByPayinCurrencyCode(env: Env, menu: UssdMenu): Promise<Record<string, Offering[]>> {
+	// Check if offerings are cached
+	const cachedOfferings = await menu.session.get('offeringsByPayinCurrencyCode');
+	if (cachedOfferings) {
+		return JSON.parse(cachedOfferings);
+	}
+
+	const { allOfferings } = await fetchPFIOfferings(env);
+
+	const offeringsByPayinCurrencyCode = allOfferings.reduce(
+		(acc, curr) => {
+			const payinCurrencyCode = curr.data.payin.currencyCode;
+			if (!acc[payinCurrencyCode]) {
+				acc[payinCurrencyCode] = [];
+			}
+			acc[payinCurrencyCode].push(curr);
+			return acc;
+		},
+		{} as Record<string, Offering[]>,
+	);
+
+	// Write offerings to session
+	await menu.session.set('offeringsByPayinCurrencyCode', JSON.stringify(offeringsByPayinCurrencyCode));
+
+	return offeringsByPayinCurrencyCode;
+}
+
 const BLOCK_INDENT = '';
 // '&nbsp;'.repeat(4);
 export function generateOfferingDescription(offering: Offering, index: number) {

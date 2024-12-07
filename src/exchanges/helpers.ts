@@ -106,12 +106,16 @@ export async function processClose(env: Env, user: DbUser, transaction: DbTransa
 	const updatedTransaction = await fetchTransaction(db, transaction.id);
 
 	if (!isCancelled && ['wallet-in', 'wallet-out'].includes(updatedTransaction.type)) {
+		const rawAmount = transaction.type === 'wallet-in' ? quote.data.payout.amount : quote.data.payin.amount;
+		const amount = transaction.type === 'wallet-in' ? Number(rawAmount) : -Number(rawAmount);
+		const currencyCode = transaction.type === 'wallet-in' ? quote.data.payout.currencyCode : quote.data.payin.currencyCode;
+
 		// Create the Go wallet transaction
 		await insertGoWalletTransaction(db, user.id, {
 			sourceTransactionId: transaction.id,
 			pfiDid: transaction.pfiDid,
-			currencyCode: transaction.type === 'wallet-in' ? quote.data.payout.currencyCode : quote.data.payin.currencyCode,
-			amount: Number(transaction.type === 'wallet-in' ? quote.data.payout.amount : quote.data.payin.amount),
+			currencyCode,
+			amount,
 			reference: `Order completed: ${transaction.id}`,
 		});
 	}

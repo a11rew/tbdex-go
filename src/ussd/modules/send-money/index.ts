@@ -1,5 +1,5 @@
 import { currencyDescriptions, makeHumanReadablePaymentMethod } from '@/constants/descriptions';
-import { fetchGoCreditBalance } from '@/db/helpers';
+import { fetchGoCreditBalance, fetchGoWalletBalances } from '@/db/helpers';
 import { transactions, DbUser as User } from '@/db/schema';
 import { resolveDID } from '@/did';
 import { publishSMS } from '@/sms';
@@ -12,17 +12,42 @@ import { PortableDid } from '@web5/dids';
 import { drizzle } from 'drizzle-orm/d1';
 import UssdMenu from 'ussd-builder';
 import type { UssdModule } from '../';
-import { generateOfferingDescription, getOfferingsByPayoutCurrencyCode } from './helpers';
+import { generateOfferingDescription, getOfferingsByPayinCurrencyCode, getOfferingsByPayoutCurrencyCode } from './helpers';
 
 const stateId = 'sendMoney';
 
 export default {
-	id: stateId,
+	id: `${stateId}.type`,
 	description: 'Send Money',
-	handler: sendMoneyHandler,
+	handler: (menu, env, ctx) => {
+		menu.state(`${stateId}.type`, {
+			run: buildRunHandler(async () => {
+				buildContinueResponse(
+					menu,
+					'How do you want to send money?' +
+						'\n\n' +
+						'1. From your local payment method (Bank Account, Mobile Money, etc.)' +
+						'\n' +
+						'2. From your Go Wallet',
+					{ back: true, exit: true },
+				);
+			}),
+			next: {
+				'#': '__exit__',
+				'0': 'user.registered',
+				'1': () => sendMoneyHandler(menu, env, ctx, 'regular'),
+				'2': () => sendMoneyHandler(menu, env, ctx, 'wallet-out'),
+			},
+		});
+	},
 } satisfies UssdModule;
 
-function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type: 'regular' | 'wallet-in' | 'wallet-out' = 'regular') {
+export function sendMoneyHandler(
+	menu: UssdMenu,
+	env: Env,
+	ctx: ExecutionContext,
+	type: 'regular' | 'wallet-in' | 'wallet-out' = 'regular',
+) {
 	menu.state(stateId, {
 		run: buildRunHandler(async () => {
 			// Count the number of occurrences of '*0' in the text
@@ -30,18 +55,24 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 
 			// Fetch offerings grouped by payout currency code
 			const offeringsByPayoutCurrencyCode = await getOfferingsByPayoutCurrencyCode(env, menu);
-			const offeringsByPayoutCurrencyCodeKeys = Object.keys(offeringsByPayoutCurrencyCode);
+			let optionKeys = Object.keys(offeringsByPayoutCurrencyCode);
+
+			if (type === 'wallet-in') {
+				const offeringsByPayinCurrencyCode = await getOfferingsByPayinCurrencyCode(env, menu);
+
+				// We only support adding funds for currencies that can be used as payin methods
+				optionKeys = Object.keys(offeringsByPayinCurrencyCode).filter((code) => offeringsByPayinCurrencyCode[code].length > 0);
+			}
+
+			await menu.session.set(`${stateId}.optionKeys`, optionKeys);
 
 			// Paginate offerings
 			const PER_PAGE = 4;
 			const startIndex = paginationIndex * PER_PAGE;
 			const endIndex = (paginationIndex + 1) * PER_PAGE;
-			const paginatedOfferingKeys =
-				startIndex < offeringsByPayoutCurrencyCodeKeys.length
-					? offeringsByPayoutCurrencyCodeKeys.slice(startIndex, endIndex)
-					: offeringsByPayoutCurrencyCodeKeys.slice(0, PER_PAGE);
+			const paginatedOptionKeys = startIndex < optionKeys.length ? optionKeys.slice(startIndex, endIndex) : optionKeys.slice(0, PER_PAGE);
 
-			const hasMorePages = Object.keys(offeringsByPayoutCurrencyCode).length > endIndex;
+			const hasMorePages = optionKeys.length > endIndex;
 
 			const title = type === 'wallet-in' ? 'What currency do you want to add to your wallet?' : 'Where do you want to send money to?';
 
@@ -50,12 +81,8 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 				menu,
 				title +
 					'\n\n' +
-					paginatedOfferingKeys
-						.map(
-							(key) =>
-								`${offeringsByPayoutCurrencyCodeKeys.indexOf(key) + 1}. ${key}` +
-								(currencyDescriptions[key] ? ` - ${currencyDescriptions[key]}` : ''),
-						)
+					paginatedOptionKeys
+						.map((key) => `${optionKeys.indexOf(key) + 1}. ${key}` + (currencyDescriptions[key] ? ` - ${currencyDescriptions[key]}` : ''))
 						.join('\n') +
 					(hasMorePages ? '\n\n0. More options' : ''),
 				{ exit: true },
@@ -67,16 +94,14 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 				try {
 					const input = menu.val;
 					const index = parseInt(input) - 1;
+					const options: string[] = JSON.parse(await menu.session.get(`${stateId}.optionKeys`));
 
-					const offeringsByPayoutCurrencyCode = await getOfferingsByPayoutCurrencyCode(env, menu);
-
-					if (index < 0 || index >= Object.keys(offeringsByPayoutCurrencyCode).length) {
+					if (index < 0 || index >= options.length) {
 						// TODO: Show soft error
 						return stateId;
 					}
 
-					const payoutCurrencyCode = Object.keys(offeringsByPayoutCurrencyCode)[index];
-
+					const payoutCurrencyCode = options[index];
 					await menu.session.set('payoutCurrencyCode', payoutCurrencyCode);
 
 					return `${stateId}.selectPayinCurrency`;
@@ -88,9 +113,143 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 		},
 	});
 
+	menu.state(`${stateId}.wallet-out`, {
+		run: buildRunHandler(async () => {
+			const db = drizzle(env.DB);
+
+			const serializedUser = await menu.session.get('user');
+			if (!serializedUser) {
+				return menu.end('You are not logged in. Please login to continue.');
+			}
+
+			const user = JSON.parse(serializedUser) as User;
+
+			// Confirm user has balances to spend, else let them know to add money
+			const userBalances = await fetchGoWalletBalances(db, user.id);
+
+			if (userBalances.length === 0) {
+				return menu.end('You have no currency balances in your Go Wallet. \n\nAdd money from the "Go Wallet" menu to get started.');
+			}
+
+			const balanceMap = userBalances.reduce(
+				(acc, curr) => {
+					acc[curr.currency_code] = curr.balance;
+					return acc;
+				},
+				{} as Record<string, number>,
+			);
+
+			const offeringKeys = Object.keys(balanceMap);
+
+			await menu.session.set('wallet-out.choosePayinCurrency.optionKeys', offeringKeys);
+
+			// Paginate offerings
+			// Count the number of occurrences of '*0' in the text
+			const paginationIndex = (menu.args.text.match(/\*0/g) || []).length;
+			const PER_PAGE = 4;
+			const startIndex = paginationIndex * PER_PAGE;
+			const endIndex = (paginationIndex + 1) * PER_PAGE;
+			const paginatedOfferingKeys =
+				startIndex < offeringKeys.length ? offeringKeys.slice(startIndex, endIndex) : offeringKeys.slice(0, PER_PAGE);
+
+			const hasMorePages = offeringKeys.length > endIndex;
+
+			buildContinueResponse(
+				menu,
+				'Which currency balance do you want to send from?' +
+					'\n\n' +
+					paginatedOfferingKeys.map((key) => `${offeringKeys.indexOf(key) + 1}. ${key}`).join('\n') +
+					(hasMorePages ? '\n\n0. More options' : ''),
+				{ exit: true },
+			);
+		}),
+		next: {
+			'#': '__exit__',
+			'*': async () => {
+				const input = menu.val;
+				const index = parseInt(input) - 1;
+				const options: string[] = JSON.parse(await menu.session.get('wallet-out.choosePayinCurrency.optionKeys'));
+
+				if (index < 0 || index >= options.length) {
+					// TODO: Show soft error
+					return stateId;
+				}
+
+				const payinCurrencyCode = options[index];
+				console.log('payin currency code', payinCurrencyCode);
+				await menu.session.set('payinCurrencyCode', payinCurrencyCode);
+
+				return `${stateId}.wallet-out.choosePayoutCurrency`;
+			},
+		},
+	});
+
+	menu.state(`${stateId}.wallet-out.choosePayoutCurrency`, {
+		run: buildRunHandler(async () => {
+			const payinCurrencyCode = await menu.session.get('payinCurrencyCode');
+			const offeringsByPayinCurrencyCode = await getOfferingsByPayinCurrencyCode(env, menu);
+			const applicableOfferings = offeringsByPayinCurrencyCode[payinCurrencyCode];
+
+			if (!applicableOfferings || applicableOfferings.length === 0) {
+				return menu.end(
+					`We cannot find any PFI offerings that support paying in the selected currency. \n\nWe're always expanding our PFI network. Please check again soon.`,
+				);
+			}
+
+			const optionKeys = applicableOfferings.map((o) => o.data.payout.currencyCode);
+
+			await menu.session.set('wallet-out.choosePayoutCurrency.optionKeys', optionKeys);
+
+			// Paginate offerings
+			// Count the number of occurrences of '*0' in the text
+			const paginationIndex = (menu.args.text.match(/\*0/g) || []).length;
+			const PER_PAGE = 4;
+			const startIndex = paginationIndex * PER_PAGE;
+			const endIndex = (paginationIndex + 1) * PER_PAGE;
+			const paginatedOptionKeys = startIndex < optionKeys.length ? optionKeys.slice(startIndex, endIndex) : optionKeys.slice(0, PER_PAGE);
+
+			const hasMorePages = optionKeys.length > endIndex;
+
+			buildContinueResponse(
+				menu,
+				'Where do you want to send money to?' +
+					'\n\n' +
+					paginatedOptionKeys.map((key) => `${optionKeys.indexOf(key) + 1}. ${key}`).join('\n') +
+					(hasMorePages ? '\n\n0. More options' : ''),
+				{ exit: true },
+			);
+		}),
+		next: {
+			'#': '__exit__',
+			'*': async () => {
+				const input = menu.val;
+
+				if (!input) {
+					// TODO: Show soft error
+					return stateId;
+				}
+
+				const index = parseInt(input) - 1;
+				const options: string[] = JSON.parse(await menu.session.get('wallet-out.choosePayoutCurrency.optionKeys'));
+
+				if (index < 0 || index >= options.length) {
+					// TODO: Show soft error
+					return stateId;
+				}
+
+				const payoutCurrencyCode = options[index];
+				await menu.session.set('payoutCurrencyCode', payoutCurrencyCode);
+
+				return `${stateId}.chooseOffering`;
+			},
+		},
+	});
+
 	menu.state(`${stateId}.selectPayinCurrency`, {
 		run: buildRunHandler(async () => {
-			console.log('running authenticated.sendMoney.selectPayinCurrency');
+			const db = drizzle(env.DB);
+			const user = JSON.parse(await menu.session.get('user')) as User;
+
 			const payoutCurrencyCode = await menu.session.get('payoutCurrencyCode');
 			const offeringsByPayoutCurrencyCode = JSON.parse(await menu.session.get('offeringsByPayoutCurrencyCode')) as Record<
 				string,
@@ -101,23 +260,46 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 			const offerings = offeringsByPayoutCurrencyCode[payoutCurrencyCode];
 
 			// Group offerings by payin currency code
-			const offeringsByPayinCurrencyCode = offerings.reduce(
-				(acc, curr) => {
-					const payinCurrencyCode = curr.data.payin.currencyCode;
-					if (!acc[payinCurrencyCode]) {
-						acc[payinCurrencyCode] = [];
-					}
+			const offeringsByPayinCurrencyCode =
+				type === 'wallet-out'
+					? (await fetchGoWalletBalances(db, user.id)).reduce(
+							(acc, curr) => {
+								const payinCurrencyCode = curr.currency_code;
+								if (!acc[payinCurrencyCode]) {
+									acc[payinCurrencyCode] = [];
+								}
 
-					acc[payinCurrencyCode].push(curr);
-					return acc;
-				},
-				{} as Record<string, Offering[]>,
-			);
+								const offering = offerings.find((o) => o.data.payin.currencyCode === payinCurrencyCode);
+
+								if (offering) {
+									acc[payinCurrencyCode].push(offering);
+								}
+								return acc;
+							},
+							{} as Record<string, Offering[]>,
+						)
+					: offerings.reduce(
+							(acc, curr) => {
+								const payinCurrencyCode = curr.data.payin.currencyCode;
+								if (!acc[payinCurrencyCode]) {
+									acc[payinCurrencyCode] = [];
+								}
+
+								acc[payinCurrencyCode].push(curr);
+								return acc;
+							},
+							{} as Record<string, Offering[]>,
+						);
 
 			// Write offerings to session
 			await menu.session.set('offeringsByPayinCurrencyCode', JSON.stringify(offeringsByPayinCurrencyCode));
 
-			const title = type === 'wallet-in' ? 'What currency do you currently have?' : 'Where are you sending money from?';
+			const title =
+				type === 'wallet-in'
+					? 'What currency do you currently have?'
+					: type === 'wallet-out'
+						? 'Which currency balance do you want to send from?'
+						: 'Where are you sending money from?';
 
 			buildContinueResponse(
 				menu,
@@ -172,7 +354,12 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 				const payoutCurrencyCode = await menu.session.get('payoutCurrencyCode');
 
 				// Get offerings for selected payin and payout
-				const offerings = offeringsByPayinCurrencyCode[payinCurrencyCode];
+				let offerings = offeringsByPayinCurrencyCode[payinCurrencyCode];
+
+				// Filter offerings by payout currency code if currency code is provided
+				if (payoutCurrencyCode) {
+					offerings = offerings.filter((o) => o.data.payout.currencyCode === payoutCurrencyCode);
+				}
 
 				// Write offerings to session
 				await menu.session.set('offerings', JSON.stringify(offerings));
@@ -213,7 +400,11 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 
 					await menu.session.set('chosenOffering', JSON.stringify(chosenOffering));
 
-					if (chosenOffering.data.payin.methods.length > 1) {
+					if (
+						chosenOffering.data.payin.methods.length > 1 &&
+						// In the case of wallet-out, we don't need to choose a payin method
+						type !== 'wallet-out'
+					) {
 						return `${stateId}.choosePayinMethod`;
 					}
 
@@ -222,7 +413,12 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 
 					await menu.session.set('chosenPayinMethod', JSON.stringify(chosenPayinMethod));
 
-					if (chosenPayinMethod.requiredPaymentDetails && Object.keys(chosenPayinMethod.requiredPaymentDetails).length > 0) {
+					if (
+						// In the case of wallet-out, we don't need to specify payin method details
+						type !== 'wallet-out' &&
+						chosenPayinMethod.requiredPaymentDetails &&
+						Object.keys(chosenPayinMethod.requiredPaymentDetails).length > 0
+					) {
 						return `${stateId}.specifyPayinMethodDetails`;
 					}
 
@@ -592,18 +788,34 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 
 	menu.state(`${stateId}.specifyAmount`, {
 		run: buildRunHandler(async () => {
+			const db = drizzle(env.DB);
+
 			const error = await menu.session.get('specifyAmount.error');
 			const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
 
+			const serializedUser = await menu.session.get('user');
+			if (!serializedUser) {
+				return menu.end('You are not logged in. Please login to continue.');
+			}
+
+			const user = JSON.parse(serializedUser) as User;
+			const currencyCode = offering.data.payin.currencyCode;
+
+			// If wallet-out, get balances
+			const balances = type === 'wallet-out' ? await fetchGoWalletBalances(db, user.id) : undefined;
+			const currencyBalance = balances?.find((balance) => balance.currency_code === currencyCode);
+
 			const cta = type === 'wallet-in' ? 'add' : 'send';
+			const max = (type === 'wallet-out' ? currencyBalance?.balance : offering.data.payin.max) ?? offering.data.payin.max;
+			const min = offering.data.payin.min;
 
 			return await buildContinueResponse(
 				menu,
 				[
 					error && error + '\n',
 					`Enter the amount you want to ${cta} in ${offering.data.payin.currencyCode}.`,
-					offering.data.payin.min && `The minimum amount you can ${cta} is ${offering.data.payin.min} ${offering.data.payin.currencyCode}.`,
-					offering.data.payin.max && `The maximum amount you can ${cta} is ${offering.data.payin.max} ${offering.data.payin.currencyCode}.`,
+					min && `The minimum amount you can ${cta} is ${min} ${offering.data.payin.currencyCode}.`,
+					max && `The maximum amount you can ${cta} is ${max} ${offering.data.payin.currencyCode}.`,
 				]
 					.filter(Boolean)
 					.join('\n'),
@@ -614,19 +826,33 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 			'#': '__exit__',
 			'0': `${stateId}.chooseOffering`,
 			'*': async () => {
+				const db = drizzle(env.DB);
 				const payinAmount = menu.val;
 				const offering = JSON.parse(await menu.session.get('chosenOffering')) as Offering;
+				const serializedUser = await menu.session.get('user');
+				if (!serializedUser) {
+					return menu.end('You are not logged in. Please login to continue.');
+				}
+
+				const user = JSON.parse(serializedUser) as User;
+				const currencyCode = offering.data.payin.currencyCode;
+
+				// If wallet-out, get balances
+				const balances = type === 'wallet-out' ? await fetchGoWalletBalances(db, user.id) : undefined;
+				const currencyBalance = balances?.find((balance) => balance.currency_code === currencyCode);
+				const max = (type === 'wallet-out' ? currencyBalance?.balance : offering.data.payin.max) ?? offering.data.payin.max;
+				const min = offering.data.payin.min;
 
 				// Validate payin amount
 				const payinAmountBigInt = BigInt(payinAmount);
-				if (payinAmountBigInt < BigInt(offering.data.payin.min ?? 0)) {
+				if (payinAmountBigInt < BigInt(min ?? 0)) {
 					await sessionErrors.set(menu, 'The amount you entered is below the minimum allowed. Please try again.');
 					return `${stateId}.specifyAmount`;
 				} else {
 					await sessionErrors.clear(menu);
 				}
 
-				if (offering.data.payin.max && payinAmountBigInt > BigInt(offering.data.payin.max)) {
+				if (max && payinAmountBigInt > BigInt(max)) {
 					await sessionErrors.set(menu, 'The amount you entered is above the maximum allowed. Please try again.');
 					return `${stateId}.specifyAmount`;
 				} else {
@@ -639,12 +865,6 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 					return `${stateId}.requestQuote`;
 				}
 
-				const serializedUser = await menu.session.get('user');
-				if (!serializedUser) {
-					return menu.end('You are not logged in. Please login to continue.');
-				}
-
-				const user = JSON.parse(serializedUser) as User;
 				const userCredentials = await getCustomerCredentials(env, user.id);
 
 				// Validate user has required claims
@@ -826,12 +1046,12 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 							amount: amount.toString(),
 							currency: offering.data.payout.currencyCode,
 							kind:
-								type === 'wallet-in'
-									? // Simulate stored balance transaction for wallet-in
+								type !== 'regular'
+									? // Simulate stored balance transaction for wallet transfers
 										(payoutMethod.kind ?? 'STORED_BALANCE')
 									: chosenPayoutMethod!.kind,
 							paymentDetails:
-								type === 'wallet-in'
+								type !== 'regular'
 									? (payoutMethodDetails ??
 										// These wouldn't be required in an actual stored balance transaction,
 										// we'll simulate it by sending dummy values
@@ -849,13 +1069,13 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 							amount: amount.toString(),
 							currency: offering.data.payin.currencyCode,
 							kind:
-								type === 'wallet-in'
-									? // Simulate stored balance transaction for wallet-in
+								type !== 'regular'
+									? // Simulate stored balance transaction for wallet transfers
 										(payinMethod.kind ?? 'STORED_BALANCE')
 									: chosenPayinMethod!.kind,
 							paymentDetails:
-								type === 'wallet-in'
-									? // Simulate stored balance transaction for wallet-in
+								type !== 'regular'
+									? // Simulate stored balance transaction for wallet transfers
 										(payinMethodDetails ??
 										// These wouldn't be required in an actual stored balance transaction,
 										// we'll simulate it by sending dummy values
@@ -926,11 +1146,13 @@ function sendMoneyHandler(menu: UssdMenu, env: Env, ctx: ExecutionContext, type:
 			const message =
 				type === 'regular'
 					? `You have requested a quote for the conversion of ${amount} ${offering.data.payin.currencyCode} to ${offering.data.payout.currencyCode}`
-					: `You are adding the ${offering.data.payout.currencyCode} equivalent of ${amount} ${offering.data.payin.currencyCode} to your wallet.`;
+					: type === 'wallet-out'
+						? `You have requested a quote for the transfer of the ${offering.data.payout.currencyCode} equivalent of ${amount} ${offering.data.payin.currencyCode} to your recipient.`
+						: `You have requested a quote for the addition of the ${offering.data.payout.currencyCode} equivalent of ${amount} ${offering.data.payin.currencyCode} to your wallet.`;
 
 			menu.end("You're almost there!" + '\n\n' + message + '\n\n' + `You will receive further instructions via SMS.`);
 		}),
 	});
 
-	return stateId;
+	return type === 'wallet-out' ? `${stateId}.wallet-out` : stateId;
 }

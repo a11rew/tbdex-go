@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import type { UssdModule } from '.';
 import { buildContinueResponse, buildRunHandler } from '../builders';
-import sendMoney from './send-money';
+import { sendMoneyHandler } from './send-money';
 
 const stateId = 'go-wallet';
 
@@ -20,7 +20,7 @@ const handler: UssdModule['handler'] = (menu, env, ctx) => {
 		next: {
 			'0': 'user.registered',
 			'#': '__exit__',
-			'1': () => sendMoney.handler(menu, env, ctx, 'wallet-in'),
+			'1': () => sendMoneyHandler(menu, env, ctx, 'wallet-in'),
 			'2': () => `${stateId}.view-wallet-balance`,
 		},
 	});

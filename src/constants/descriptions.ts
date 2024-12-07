@@ -8,6 +8,7 @@ export const currencyDescriptions = {
 	AUD: 'Australian Dollar',
 	MXN: 'Mexican Peso',
 	GHS: 'Ghanaian Cedi',
+	NGN: 'Nigerian Naira',
 } as Record<string, string>;
 
 export function makeHumanReadablePaymentMethod(method: string) {
