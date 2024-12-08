@@ -1,0 +1,13 @@
+diff --git a/lib/ussd-menu.js b/lib/ussd-menu.js
+index 28af384d7d28d38cdb8b564dc0e9c08ff4a5835c..c6959c62f1f652635732f75220cc2a4679f77c7b 100644
+--- a/lib/ussd-menu.js
++++ b/lib/ussd-menu.js
+@@ -432,7 +432,7 @@ class UssdMenu extends EventEmitter {
+             // args.Text = '',
+             args.ServiceCode = args.MSGTYPE === true ? args.USERDATA : '';
+             this.args = {
+-                sessionId: args.MSISDN,
++                sessionId: args.SESSIONID,
+                 userId: args.USERID,
+                 phoneNumber: `+${args.MSISDN}`,
+                 serviceCode: args.MSGTYPE === true ? args.USERDATA : '',

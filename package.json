@@ -37,5 +37,10 @@
 	},
 	"overrides": {
 		"@types/node": "20.8.3"
+	},
+	"pnpm": {
+		"patchedDependencies": {
+			"ussd-builder": "patches/ussd-builder.patch"
+		}
 	}
 }
