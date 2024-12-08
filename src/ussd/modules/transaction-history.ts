@@ -11,8 +11,6 @@ const stateId = 'transaction-history';
 const handler: UssdModule['handler'] = (menu, env, ctx) => {
 	menu.state(stateId, {
 		run: buildRunHandler(async () => {
-			await publishSMS(env, menu.args.phoneNumber, 'Sending transaction history report...');
-
 			buildContinueResponse(
 				menu,
 				'Transaction History' +
