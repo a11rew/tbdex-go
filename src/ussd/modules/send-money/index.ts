@@ -1141,18 +1141,6 @@ export function sendMoneyHandler(
 							payoutKind: rfq.data.payout.kind,
 							createdAt: rfq.metadata.createdAt,
 						});
-
-						await publishSMS(
-							env,
-							user.phoneNumber,
-							`You have requested a quote for the conversion of ${amount} ${offering.data.payin.currencyCode} to ${offering.data.payout.currencyCode}` +
-								'\n\n' +
-								`The PFI is reviewing your request. You will receive a notification via SMS once the PFI responds with a quote.` +
-								'\n\n' +
-								`This transaction will cost you 1 credit if you accept the quote.` +
-								'\n\n' +
-								`Thank you for using tbDEX Go!`,
-						);
 					} catch (error) {
 						console.error('Error in requestQuote', error);
 
